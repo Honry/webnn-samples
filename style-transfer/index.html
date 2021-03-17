@@ -1,0 +1,155 @@
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <title>WebNN Style Transfer Example</title>
+  <link href='./css/style.css' rel='stylesheet'>
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css"
+    integrity="sha384-JcKb8q3iqJ61gNV9KGb8thSsNjpSL0n8PARn9HuZOnIxN0hoP+VmmDGMN5t9UJ0Z" crossorigin="anonymous">
+</head>
+<style type="text/css">
+  @media (max-width: 768px) {
+
+    #inputCanvas,
+    #outputCanvas,
+    #camInCanvas,
+    #camOutCanvas {
+      max-width: 76vw !important;
+    }
+  }
+
+  .gallery {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .gallery-item {
+    flex: 1 0 3rem;
+    margin: 1rem;
+    box-shadow: 0.1rem 0.1rem 0.1rem rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    cursor: pointer;
+  }
+
+  .gallery-image {
+    display: block;
+    width: 100%;
+    max-height: 100%;
+    object-fit: cover;
+    transition: transform 400ms ease-out;
+  }
+
+  .gallery-image:hover {
+    transform: scale(1.25);
+  }
+
+  .hl {
+    border: 2px solid rgba(25, 190, 225, 1.0);
+  }
+</style>
+
+<body>
+  <nav class="navbar navbar-expand-md navbar-dark bg-dark" style="width:100%">
+    <span class="navbar-brand mb-0 h1">WebNN Style Transfer Example</span>
+  </nav>
+  <div class='container' id='container'>
+    <ul class="nav nav-tabs nav-justified mb-3" id="ex1" role="tablist">
+      <li class="nav-item" id="img" role="presentation">
+        <a class="nav-link active" data-toggle="tab" href="#imagetab" role="tab" aria-controls="ex3-tabs-1"
+          aria-selected="true">IMAGE</a>
+      </li>
+      <li class="nav-item" id="cam" role="presentation">
+        <a class="nav-link" data-toggle="tab" href="#cameratab" role="tab" aria-controls="ex3-tabs-2"
+          aria-selected="false">LIVE CAMERA</a>
+      </li>
+    </ul>
+    <div class="gallery" id="gallery">
+      <div class="gallery-item hl"><img class="gallery-image" id="candy" src='./images/style-images/candy.jpg'
+          title="candy"></div>
+      <div class="gallery-item"><img class="gallery-image" id="mosaic" src='./images/style-images/mosaic.jpg'
+          title="mosaic"></div>
+      <div class="gallery-item"><img class="gallery-image" id="rain-princess"
+          src='./images/style-images/rain-princess.jpg' title="rain princess"></div>
+      <div class="gallery-item"><img class="gallery-image" id="udnie" src='./images/style-images/udnie.jpg'
+          title="udnie"></div>
+    </div>
+    <div class='tab-content clearfix row'>
+      <div class='tab-pane text-center active col-sm' id='imagetab'>
+        <div class='icdisplay'>
+          <div class='col-lg-12 col-xs-12 text-center'>
+            <div class='row'>
+              <div class='col bt-3 mb-3' style="display: flex;">
+                <div id='div-photos' style="margin: auto; display: flex;">
+                  <img id='feedElement' hidden crossorigin='anonymous' class='img-fluid' alt='Responsive image'
+                    src=''>
+                  <canvas id='inputCanvas'></canvas>
+                </div>
+              </div>
+              <div class='col bt-3 mb-3' style="display: flex;">
+                <div id='div-styles' style="margin: auto; display: flex;">
+                  <canvas id='outputCanvas'></canvas>
+                </div>
+              </div>
+            </div>
+            <div class='row'>
+              <div class='col'>
+                <div class='box' id='stname'></div>
+              </div>
+            </div>
+            <div class='row mt-1'>
+              <div class='col'>
+                <label class="btn btn-outline-info">
+                  <input type='file' name='f[]' id='input' accept='image/*' hidden />
+                  <span>Pick Image</span>
+                </label>
+                <label class="btn btn-outline-info ml-3">
+                  <input type='button' id='transfer-img' hidden />
+                  <span>Transfer Image</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class='tab-pane text-center col-sm' id='cameratab'>
+        <div class='icdisplay'>
+          <div class='row'>
+            <div class='col bt-3 mb-3' style="display: flex;">
+              <div id='div-photos' style="margin: auto; display: flex;">
+                <canvas id='camInCanvas'></canvas>
+              </div>
+            </div>
+            <video id='feedMediaElement' autoplay playsinline style="display: none;"></video>
+  
+            <div class='col bt-3 mb-3' style="display: flex;">
+              <div id='div-styles' style="margin: auto; display: flex;">
+                <canvas id='camOutCanvas'></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"
+    integrity="sha384-DfXdz2htPH0lsSSs5nCTpuj/zy4C+OGpamoFVy38MVBnE+IbbVYUew+OrCXaRkfj"
+    crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"
+    integrity="sha384-9/reFTGAW83EW2RDu2S0VKaIzap3H66lZH81PoYlFhbGU+6BZp6G7niu735Sk7lN"
+    crossorigin="anonymous"></script>
+  <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"
+    integrity="sha384-B4gt1jrGC7Jh4AgTPSdUtOBvfO8shuf57BaghqFfPlYxofvL8/KUEfYiJOMMV+rV"
+    crossorigin="anonymous"></script>
+  <script src="https://webmachinelearning.github.io/webnn-polyfill/dist/webnn-polyfill.js"></script>
+  <script src="./libs/numpy.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.3.0"> </script>
+  <script type="module">
+    import { main } from './main.js';
+    window.onload = function () {
+      main();
+    }
+  </script>
+</body>
+
+</html>
