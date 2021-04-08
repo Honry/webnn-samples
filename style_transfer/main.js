@@ -18,6 +18,7 @@ let stream = null;
 let loadTime = 0;
 let buildTime = 0;
 let computeTime = 0;
+let firstInferenceTime = 0;
 
 $(document).ready(() => {
   $('.icdisplay').hide();
@@ -112,6 +113,12 @@ async function renderCamStream() {
   }
 }
 
+function getMedianValue(array) {
+  array = array.sort((a, b) => a - b);
+  return array.length % 2 !== 0 ? array[Math.floor(array.length / 2)] :
+      (array[array.length / 2 - 1] + array[array.length / 2]) / 2;
+}
+
 function drawInput(srcElement, canvasId) {
   const inputCanvas = document.getElementById(canvasId);
   const resizeRatio = Math.max(
@@ -163,6 +170,7 @@ async function drawOutput(outputs, inCanvasId, outCanvasId) {
 function showPerfResult() {
   $('#loadTime').html(`${loadTime} ms`);
   $('#buildTime').html(`${buildTime} ms`);
+  $('#firstInferenceTime').html(`${firstInferenceTime} ms`);
   $('#computeTime').html(`${computeTime} ms`);
 }
 
@@ -198,7 +206,7 @@ export async function main() {
       console.log(`  done in ${loadTime} ms.`);
       // UI shows model building progress
       await showProgressComponent('done', 'current', 'pending');
-      console.log('- Building... ');
+      console.log('- Compiling... ');
       start = performance.now();
       await fastStyleTransferNet.build(outputOperand);
       buildTime = (performance.now() - start).toFixed(2);
@@ -210,9 +218,32 @@ export async function main() {
       const inputBuffer = fastStyleTransferNet.preprocess(imgElement);
       console.log('- Computing... ');
       start = performance.now();
-      const outputs = await fastStyleTransferNet.compute(inputBuffer);
-      computeTime = (performance.now() - start).toFixed(2);
-      console.log(`  done in ${computeTime} ms.`);
+      await fastStyleTransferNet.compute(inputBuffer);
+      firstInferenceTime = (performance.now() - start).toFixed(2);
+      console.log(`First inference time: ${firstInferenceTime} ms`);
+      const inferenceTimeArray = [];
+      console.log('Start first 100 times compute...');
+      for (let i = 0; i < 100; i++) {
+        await fastStyleTransferNet.compute(inputBuffer);
+      }
+      console.log('Done first 100 times compute...');
+      console.log('Start next 101 times compute to get median inference time...');
+      let outputs;
+      for (let i = 0; i < 101; i++) {
+        start = performance.now();
+        outputs = await fastStyleTransferNet.compute(inputBuffer);
+        computeTime = (performance.now() - start).toFixed(2);
+        inferenceTimeArray.push(computeTime);
+        console.log(`time ${i}: ${computeTime} ms`);
+      }
+      console.log('Done next 101 times compute.');
+      computeTime = getMedianValue(inferenceTimeArray);
+      console.log(`median inference time: ` +
+          `${computeTime} ms`);
+      // start = performance.now();
+      // const outputs = await fastStyleTransferNet.compute(inputBuffer);
+      // computeTime = (performance.now() - start).toFixed(2);
+      // console.log(`  done in ${computeTime} ms.`);
       await showProgressComponent('done', 'done', 'done');
       readyShowResultComponents();
       drawInput(imgElement, 'inputCanvas');
