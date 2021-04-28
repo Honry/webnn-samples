@@ -167,11 +167,14 @@ async function drawOutput(outputs, inCanvasId, outCanvasId) {
   ctx.drawImage(outCanvas, 0, 0, outputCanvas.width, outputCanvas.height);
 }
 
-function showPerfResult() {
+function showPerfResult(timeInfo) {
   $('#loadTime').html(`${loadTime} ms`);
   $('#buildTime').html(`${buildTime} ms`);
-  $('#firstInferenceTime').html(`${firstInferenceTime} ms`);
-  $('#computeTime').html(`${computeTime} ms`);
+  $('#firstInferenceTime').html(`${timeInfo.firstInferenceTime} ms`);
+  $('#medianTime').html(`${timeInfo.medianTime} ms`);
+  $('#averageTime').html(`${timeInfo.averageTime} ms`);
+  $('#maxTime').html(`${timeInfo.maxTime} ms`);
+  $('#minTime').html(`${timeInfo.minTime} ms`);
 }
 
 function addWarning(msg) {
@@ -181,6 +184,24 @@ function addWarning(msg) {
   div.innerHTML = msg;
   const container = document.getElementById('container');
   container.insertBefore(div, container.childNodes[0]);
+}
+
+function populateTrendline(data) {
+  const node = document.querySelector('#perf-trendline-container');
+  const chartHeight = 150;
+  const chartWidth = 300;
+  node.querySelector('svg').setAttribute('width', chartWidth);
+  node.querySelector('svg').setAttribute('height', chartHeight);
+
+  const yMax = Math.max(...data);
+  let yMin = 0;
+
+  node.querySelector('.yMin').textContent = yMin + ' ms';
+  node.querySelector('.yMax').textContent = yMax.toFixed(1) + ' ms';
+  const xIncrement = chartWidth / (data.length - 1);
+
+  node.querySelector('path')
+    .setAttribute('d', `M${data.map((d, i) => `${i * xIncrement},${chartHeight - ((d - yMin) / (yMax - yMin)) * chartHeight}`).join('L')} `);
 }
 
 export async function main() {
@@ -218,37 +239,66 @@ export async function main() {
       const inputBuffer = fastStyleTransferNet.preprocess(imgElement);
       console.log('- Computing... ');
       start = performance.now();
+      console.time('First Inference Time');
       await fastStyleTransferNet.compute(inputBuffer);
+      console.timeEnd('First Inference Time');
       firstInferenceTime = (performance.now() - start).toFixed(2);
       console.log(`First inference time: ${firstInferenceTime} ms`);
-      const inferenceTimeArray = [];
-      console.log('Start first 100 times compute...');
-      for (let i = 0; i < 100; i++) {
+      let times = [];
+      let warmupTime = [];
+      warmupTime.push(Number(firstInferenceTime));
+      console.log('Start first 50 times compute...');
+      $('#noticeInfo').html('Start first 50 times compute...');
+      for (let i = 0; i < 50; i++) {
+        start = performance.now();
         await fastStyleTransferNet.compute(inputBuffer);
+        let time = (performance.now() - start).toFixed(2);
+        warmupTime.push(Number(time));
+        console.log(`time ${i+1}: ${time} ms`);
+        $('#noticeInfo').html(`Complete ${i+1} of first 50 times compute: ${time} ms`);
       }
-      console.log('Done first 100 times compute...');
+      console.log('Done first 50 times compute...');
       console.log('Start next 101 times compute to get median inference time...');
+      $('#noticeInfo').html('Start next 101 times compute...');
+      console.log("Start at: ", (new Date()).toLocaleTimeString());
       let outputs;
       for (let i = 0; i < 101; i++) {
         start = performance.now();
         outputs = await fastStyleTransferNet.compute(inputBuffer);
-        computeTime = (performance.now() - start).toFixed(2);
-        inferenceTimeArray.push(computeTime);
-        console.log(`time ${i}: ${computeTime} ms`);
+        let time = (performance.now() - start).toFixed(2);
+        times.push(Number(time));
+        $('#noticeInfo').html(`time ${i+1}: ${time} ms`);
+        console.log(`101 predictions of time ${i+1}: ${time} ms`);
       }
+      $('#noticeInfo').html('Done 101 times compute...');
+      console.log("End at: ", (new Date()).toLocaleTimeString());
+      populateTrendline(warmupTime.concat(times));
       console.log('Done next 101 times compute.');
-      computeTime = getMedianValue(inferenceTimeArray);
-      console.log(`median inference time: ` +
-          `${computeTime} ms`);
-      // start = performance.now();
-      // const outputs = await fastStyleTransferNet.compute(inputBuffer);
-      // computeTime = (performance.now() - start).toFixed(2);
-      // console.log(`  done in ${computeTime} ms.`);
+      let timeString = "";
+      for(let time of warmupTime.concat(times)) {
+        timeString += time + ',';
+      }
+      console.log('all inference times:', timeString);
+      const averageTime = (times.reduce((acc, curr) => acc + curr, 0) / times.length).toFixed(2);
+      console.log('averageTime: ', averageTime);
+      const minTime = Math.min(...times);
+      const maxTime = Math.max(...times);
+      const medianTime = getMedianValue(times);
+      const timeInfo = {
+        loadTime,
+        buildTime,
+        firstInferenceTime,
+        averageTime,
+        minTime,
+        maxTime,
+        medianTime
+      };
+      console.log(timeInfo);
       await showProgressComponent('done', 'done', 'done');
       readyShowResultComponents();
       drawInput(imgElement, 'inputCanvas');
       await drawOutput(outputs, 'inputCanvas', 'outputCanvas');
-      showPerfResult();
+      showPerfResult(timeInfo);
     } else if (inputType === 'camera') {
       await getMediaStream();
       camElement.srcObject = stream;

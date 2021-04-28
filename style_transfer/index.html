@@ -64,8 +64,11 @@
         </div>
       </div>
     </div>
+    <div class='tab-content clearfix'>
+      <p id="noticeInfo"></p>
+    </div>
     <div class='shoulddisplay tab-content clearfix' style='display: none;'>
-      <ul class="list-inline list-pipe text-center">
+      <!-- <ul class="list-inline list-pipe text-center">
         <li class="list-inline-item">
           Load time: <span class='ir' id='loadTime'></span>
         </li>
@@ -73,12 +76,15 @@
           Build time: <span class='ir' id='buildTime'></span>
         </li>
         <li class="list-inline-item">
-          First inference time: <span class='ir' id='firstInferenceTime'></span>
+          1st inference time: <span class='ir' id='firstInferenceTime'></span>
         </li>
         <li class="list-inline-item">
-          Median inference time: <span class='ir' id='computeTime'></span>
+          Median time (100 runs): <span class='ir' id='medianTime'></span>
         </li>
-    </ul>
+        <li class="list-inline-item">
+          Average time (100 runs): <span class='ir' id='averageTime'></span>
+        </li>
+    </ul> -->
     </div>
     <div class='tab-content clearfix row'>
       <div class='tab-pane text-center active col-sm' id='imagetab'>
@@ -145,7 +151,49 @@
         </div>
       </div>
     </div>
-    <button id='predict' class="btn btn-primary">Predict</button>
+    <div class='row mt-2'><button id='predict' class="btn btn-primary">Predict</button></div>
+    <div class='row align-items-start mt-2 shoulddisplay' style='display: none;'>
+      <div class="col">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Load Time</th>
+              <th>Build Time</th>
+              <th>1st Inference Time</th>
+              <th>Median Time (101 runs)</th>
+              <th>Average Time (101 runs)</th>
+              <th>Max Time</th>
+              <th>Min Time</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td id='loadTime'></td>
+              <td id='buildTime'></td>
+              <td id='firstInferenceTime'></td>
+              <td id='medianTime'></td>
+              <td id='averageTime'></td>
+              <td id='maxTime'></td>
+              <td id='minTime'></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class='row align-items-start mt-2 shoulddisplay' style='display: none;'>
+      <div class="col">
+        <div class="box" id="perf-trendline-container">
+          <div class="label">Inference times</div>
+          <div class="trendline">
+            <div class="yMax"></div>
+            <div class="yMin"></div>
+            <svg>
+              <path></path>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
   <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"
     integrity="sha384-DfXdz2htPH0lsSSs5nCTpuj/zy4C+OGpamoFVy38MVBnE+IbbVYUew+OrCXaRkfj"
@@ -156,7 +204,8 @@
   <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"
     integrity="sha384-B4gt1jrGC7Jh4AgTPSdUtOBvfO8shuf57BaghqFfPlYxofvL8/KUEfYiJOMMV+rV"
     crossorigin="anonymous"></script>
-  <script src="https://webmachinelearning.github.io/webnn-polyfill/dist/webnn-polyfill.js"></script>
+  <!-- <script src="https://webmachinelearning.github.io/webnn-polyfill/dist/webnn-polyfill.js"></script> -->
+  <script src="../webnn-polyfill/dist/webnn-polyfill.js"></script>
   <script type="module">
     import { main } from './main.js';
     // window.onload = function () {

@@ -16,11 +16,11 @@ export async function buildConstantByNpy(builder, url) {
     ['i1', {type: 'int8', array: Int8Array}],
     ['i2', {type: 'int16', array: Int16Array}],
     ['i4', {type: 'int32', array: Int32Array}],
-    ['i8', {type: 'int64', array: BigInt64Array}],
+    // ['i8', {type: 'int64', array: BigInt64Array}],
     ['u1', {type: 'uint8', array: Uint8Array}],
     ['u2', {type: 'uint16', array: Uint16Array}],
     ['u4', {type: 'uint32', array: Uint32Array}],
-    ['u8', {type: 'uint64', array: BigUint64Array}],
+    // ['u8', {type: 'uint64', array: BigUint64Array}],
   ]);
   const response = await fetch(url);
   const buffer = await response.arrayBuffer();
