@@ -255,7 +255,7 @@ export async function main() {
         let time = (performance.now() - start).toFixed(2);
         warmupTime.push(Number(time));
         console.log(`time ${i+1}: ${time} ms`);
-        $('#noticeInfo').html(`Complete ${i+1} of first 50 times compute: ${time} ms`);
+        $('#noticeInfo').html(`Complete ${i+1} of first 50 times' predictions: ${time} ms`);
       }
       console.log('Done first 50 times compute...');
       console.log('Start next 101 times compute to get median inference time...');
@@ -267,7 +267,7 @@ export async function main() {
         outputs = await fastStyleTransferNet.compute(inputBuffer);
         let time = (performance.now() - start).toFixed(2);
         times.push(Number(time));
-        $('#noticeInfo').html(`time ${i+1}: ${time} ms`);
+        $('#noticeInfo').html(`Complete ${i+1} of last 101 times predictions: ${time} ms`);
         console.log(`101 predictions of time ${i+1}: ${time} ms`);
       }
       $('#noticeInfo').html('Done 101 times compute...');
