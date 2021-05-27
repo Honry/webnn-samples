@@ -168,13 +168,16 @@ async function drawOutput(outputs, inCanvasId, outCanvasId) {
 }
 
 function showPerfResult(timeInfo) {
+  if (inputType === 'image') {
+    $('#medianTime').html(`${timeInfo.medianTime} ms`);
+    $('#averageTime').html(`${timeInfo.averageTime} ms`);
+    $('#maxTime').html(`${timeInfo.maxTime} ms`);
+    $('#minTime').html(`${timeInfo.minTime} ms`);
+    $('#firstInferenceTime').html(`${timeInfo.firstInferenceTime} ms`);
+  }
   $('#loadTime').html(`${loadTime} ms`);
   $('#buildTime').html(`${buildTime} ms`);
-  $('#firstInferenceTime').html(`${timeInfo.firstInferenceTime} ms`);
-  $('#medianTime').html(`${timeInfo.medianTime} ms`);
-  $('#averageTime').html(`${timeInfo.averageTime} ms`);
-  $('#maxTime').html(`${timeInfo.maxTime} ms`);
-  $('#minTime').html(`${timeInfo.minTime} ms`);
+  
 }
 
 function addWarning(msg) {
@@ -202,6 +205,32 @@ function populateTrendline(data) {
 
   node.querySelector('path')
     .setAttribute('d', `M${data.map((d, i) => `${i * xIncrement},${chartHeight - ((d - yMin) / (yMax - yMin)) * chartHeight}`).join('L')} `);
+}
+
+export async function setPolyfillBackend(backend) {
+  if (!backend) {
+    // Use cpu by default for accuracy reason
+    // See more details at:
+    // https://github.com/webmachinelearning/webnn-polyfill/pull/32#issuecomment-763825323
+    backend = 'cpu';
+  }
+  const tf = navigator.ml.createContext().tf;
+  if (tf) {
+    const backends = ['webgl', 'webgpu', 'cpu'];
+    if (!backends.includes(backend)) {
+      if (backend) {
+        console.warn(`webnn-polyfill doesn't support ${backend} backend.`);
+      }
+    } else {
+      if (!(await tf.setBackend(backend))) {
+        console.error(`Failed to set tf.js backend ${backend}.`);
+      }
+    }
+    await tf.ready();
+    console.info(
+        `webnn-polyfill uses tf.js ${tf.version_core}` +
+        ` ${tf.getBackend()} backend.`);
+  }
 }
 
 export async function main() {
