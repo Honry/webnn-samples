@@ -19,6 +19,11 @@ let loadTime = 0;
 let buildTime = 0;
 let computeTime = 0;
 let firstInferenceTime = 0;
+let useWebnn = false;
+const inputOptions = {
+  inputDimensions: [1, 540, 540, 3],
+  inputLayout: 'nhwc',
+}
 
 $(document).ready(() => {
   $('.icdisplay').hide();
@@ -97,10 +102,21 @@ function stopCamera() {
  * This method is used to render live camera tab.
  */
 async function renderCamStream() {
-  const inputBuffer = fastStyleTransferNet.preprocess(camElement);
+  let inputBuffer;
+  if (useWebnn) {
+    inputBuffer = fastStyleTransferNet.preprocess(camElement);    
+  } else {
+    inputBuffer = getInputTensor(camElement, inputOptions);
+    inputBuffer = tf.tensor(inputBuffer, inputOptions.inputDimensions, 'float32');
+  }
   console.log('- Computing... ');
   const start = performance.now();
-  const outputs = await fastStyleTransferNet.compute(inputBuffer);
+  let outputs;
+  if (useWebnn) {
+    outputs = await fastStyleTransferNet.compute(inputBuffer);
+  } else {
+    outputs = await fastStyleTransferNet.predict(inputBuffer);
+  }
   computeTime = (performance.now() - start).toFixed(2);
   console.log(`  done in ${computeTime} ms.`);
   camElement.width = camElement.videoWidth;
@@ -132,8 +148,16 @@ function drawInput(srcElement, canvasId) {
 }
 
 async function drawOutput(outputs, inCanvasId, outCanvasId) {
-  const outputTensor = outputs.output.data;
-  const outputSize = outputs.output.dimensions;
+  let outputTensor, outputSize;
+  if (useWebnn) {
+    outputTensor = outputs.output.data;
+    outputSize = outputs.output.dimensions;
+  } else {
+    const b = tf.transpose(outputs, [0, 3, 1, 2]);
+    const buffer = await b.buffer();
+    outputSize = b.shape;
+    outputTensor = buffer.values;
+  }
   const height = outputSize[2];
   const width = outputSize[3];
   const mean = [1, 1, 1, 1];
@@ -207,30 +231,85 @@ function populateTrendline(data) {
     .setAttribute('d', `M${data.map((d, i) => `${i * xIncrement},${chartHeight - ((d - yMin) / (yMax - yMin)) * chartHeight}`).join('L')} `);
 }
 
-export async function setPolyfillBackend(backend) {
+export function getInputTensor(inputElement, inputOptions) {
+  const inputDimensions = inputOptions.inputDimensions;
+  const tensor = new Float32Array(
+      inputDimensions.slice(1).reduce((a, b) => a * b));
+
+  inputElement.width = inputElement.videoWidth ||
+      inputElement.naturalWidth;
+  inputElement.height = inputElement.videoHeight ||
+      inputElement.naturalHeight;
+
+  let [channels, height, width] = inputDimensions.slice(1);
+  const mean = inputOptions.mean || [0, 0, 0, 0];
+  const std = inputOptions.std || [1, 1, 1, 1];
+  const normlizationFlag = inputOptions.norm || false;
+  const inputLayout = inputOptions.inputLayout;
+  const imageChannels = 4; // RGBA
+
+  if (inputLayout === 'nhwc') {
+    [height, width, channels] = inputDimensions.slice(1);
+  }
+  const canvasElement = document.createElement('canvas');
+  canvasElement.width = width;
+  canvasElement.height = height;
+  const canvasContext = canvasElement.getContext('2d');
+  canvasContext.drawImage(inputElement, 0, 0, width, height);
+
+  let pixels = canvasContext.getImageData(0, 0, width, height).data;
+
+  if (normlizationFlag) {
+    pixels = new Float32Array(pixels).map((p) => p / 255);
+  }
+
+  for (let c = 0; c < channels; ++c) {
+    for (let h = 0; h < height; ++h) {
+      for (let w = 0; w < width; ++w) {
+        const value =
+            pixels[h * width * imageChannels + w * imageChannels + c];
+        if (inputLayout === 'nchw') {
+          tensor[c * width * height + h * width + w] =
+              (value - mean[c]) / std[c];
+        } else {
+          tensor[h * width * channels + w * channels + c] =
+              (value - mean[c]) / std[c];
+        }
+      }
+    }
+  }
+  return tensor;
+}
+
+export async function setBackend(backend, useWebnnFlag) {
   if (!backend) {
     // Use cpu by default for accuracy reason
     // See more details at:
     // https://github.com/webmachinelearning/webnn-polyfill/pull/32#issuecomment-763825323
     backend = 'cpu';
   }
-  const tf = navigator.ml.createContext().tf;
-  if (tf) {
-    const backends = ['webgl', 'webgpu', 'cpu'];
-    if (!backends.includes(backend)) {
-      if (backend) {
-        console.warn(`webnn-polyfill doesn't support ${backend} backend.`);
-      }
-    } else {
-      if (!(await tf.setBackend(backend))) {
-        console.error(`Failed to set tf.js backend ${backend}.`);
-      }
-    }
-    await tf.ready();
-    console.info(
-        `webnn-polyfill uses tf.js ${tf.version_core}` +
-        ` ${tf.getBackend()} backend.`);
+  let tfjs;
+  if (useWebnnFlag) {
+    console.log('use webnn');
+    useWebnn = useWebnnFlag;
+    tfjs = navigator.ml.createContext().tf;
+  } else {
+    tfjs = tf;
   }
+  const backends = ['webgl', 'webgpu', 'cpu'];
+  if (!backends.includes(backend)) {
+    if (backend) {
+      console.warn(`${backend} backend is not supported.`);
+    }
+  } else {
+    if (!(await tfjs.setBackend(backend))) {
+      console.error(`Failed to set tf.js backend ${backend}.`);
+    }
+  }
+  await tfjs.ready();
+  console.info(
+      `Uses tf.js ${tfjs.version_core}` +
+      ` ${tfjs.getBackend()} backend.`);
 }
 
 export async function main() {
@@ -241,9 +320,16 @@ export async function main() {
     if (isFirstTimeLoad || isModelChanged) {
       if (fastStyleTransferNet !== undefined) {
         // Call dispose() to and avoid memory leak
-        fastStyleTransferNet.dispose();
+        if (useWebnn) {
+          fastStyleTransferNet.dispose();
+        } else {
+          // TODO: use tf.tidy() instead. https://js.tensorflow.org/api/latest/#tidy
+          tf.dispose();
+        }
       }
-      fastStyleTransferNet = new FastStyleTransferNet();
+      if (useWebnn) {
+        fastStyleTransferNet = new FastStyleTransferNet();
+      }
       isFirstTimeLoad = false;
       isModelChanged = false;
       console.log(`- Model ID: ${modelId} -`);
@@ -251,63 +337,106 @@ export async function main() {
       await showProgressComponent('current', 'pending', 'pending');
       console.log('- Loading weights... ');
       start = performance.now();
-      const outputOperand = await fastStyleTransferNet.load(modelId);
+      let outputOperand;
+      if (useWebnn) {
+        console.log('use webnn')
+        outputOperand = await fastStyleTransferNet.load(modelId);
+      } else {
+        fastStyleTransferNet = await tf.loadGraphModel(`./models/${modelId}/model.json`);
+      }
       loadTime = (performance.now() - start).toFixed(2);
       console.log(`  done in ${loadTime} ms.`);
       // UI shows model building progress
       await showProgressComponent('done', 'current', 'pending');
       console.log('- Compiling... ');
       start = performance.now();
-      await fastStyleTransferNet.build(outputOperand);
+      if (useWebnn) {
+        await fastStyleTransferNet.build(outputOperand);
+      }
       buildTime = (performance.now() - start).toFixed(2);
       console.log(`  done in ${buildTime} ms.`);
     }
     // UI shows inferencing progress
     await showProgressComponent('done', 'done', 'current');
     if (inputType === 'image') {
-      const inputBuffer = fastStyleTransferNet.preprocess(imgElement);
+      let inputBuffer;
+      if (useWebnn) {
+        inputBuffer = fastStyleTransferNet.preprocess(imgElement);    
+      } else {
+        inputBuffer = getInputTensor(imgElement, inputOptions);
+        inputBuffer = tf.tensor(inputBuffer, inputOptions.inputDimensions, 'float32');
+      }
       console.log('- Computing... ');
       start = performance.now();
+      let outputs;
       console.time('First Inference Time');
-      await fastStyleTransferNet.compute(inputBuffer);
+      if (useWebnn) {
+        outputs = await fastStyleTransferNet.compute(inputBuffer);
+      } else {
+        outputs = await fastStyleTransferNet.predict(inputBuffer);
+      }
       console.timeEnd('First Inference Time');
+      console.log('outputs: ', outputs);
       firstInferenceTime = (performance.now() - start).toFixed(2);
       console.log(`First inference time: ${firstInferenceTime} ms`);
       let times = [];
       let warmupTime = [];
       warmupTime.push(Number(firstInferenceTime));
-      console.log('Start first 50 times compute...');
-      $('#noticeInfo').html('Start first 50 times compute...');
-      for (let i = 0; i < 50; i++) {
-        start = performance.now();
-        await fastStyleTransferNet.compute(inputBuffer);
-        let time = (performance.now() - start).toFixed(2);
-        warmupTime.push(Number(time));
-        console.log(`time ${i+1}: ${time} ms`);
-        $('#noticeInfo').html(`Complete ${i+1} of first 50 times' predictions: ${time} ms`);
+      let numRuns = (new URLSearchParams(location.search)).get('numRuns');
+      numRuns = numRuns === null ? 0 : parseInt(numRuns);
+      if (numRuns > 0) {
+        for (let i = 0; i < numRuns-1; i++) {
+          start = performance.now();
+          if (useWebnn) {
+            await fastStyleTransferNet.compute(inputBuffer);
+          } else {
+            await fastStyleTransferNet.predict(inputBuffer);
+          }
+          let time = (performance.now() - start).toFixed(2);
+          times.push(Number(time));
+          console.log(`time ${i+1}: ${time} ms`);
+        }
+      } else {
+        console.log('Start first 50 times compute...');
+        $('#noticeInfo').html('Start first 50 times compute...');
+        for (let i = 0; i < 50; i++) {
+          start = performance.now();
+          if (useWebnn) {
+            await fastStyleTransferNet.compute(inputBuffer);
+          } else {
+            await fastStyleTransferNet.predict(inputBuffer);
+          }
+          let time = (performance.now() - start).toFixed(2);
+          warmupTime.push(Number(time));
+          console.log(`time ${i+1}: ${time} ms`);
+          $('#noticeInfo').html(`Complete ${i+1} of first 50 times' predictions: ${time} ms`);
+        }
+        console.log('Done first 50 times compute...');
+        console.log('Start next 101 times compute to get median inference time...');
+        $('#noticeInfo').html('Start next 101 times compute...');
+        console.log("Start at: ", (new Date()).toLocaleTimeString());
+        for (let i = 0; i < 101; i++) {
+          start = performance.now();
+          if (useWebnn) {
+            await fastStyleTransferNet.compute(inputBuffer);
+          } else {
+            await fastStyleTransferNet.predict(inputBuffer);
+          }
+          let time = (performance.now() - start).toFixed(2);
+          times.push(Number(time));
+          $('#noticeInfo').html(`Complete ${i+1} of last 101 times predictions: ${time} ms`);
+          console.log(`101 predictions of time ${i+1}: ${time} ms`);
+        }
+        $('#noticeInfo').html('Done 101 times compute...');
+        console.log("End at: ", (new Date()).toLocaleTimeString());
+        populateTrendline(warmupTime.concat(times));
+        console.log('Done next 101 times compute.');
+        let timeString = "";
+        for(let time of warmupTime.concat(times)) {
+          timeString += time + ',';
+        }
+        console.log('all inference times:', timeString);
       }
-      console.log('Done first 50 times compute...');
-      console.log('Start next 101 times compute to get median inference time...');
-      $('#noticeInfo').html('Start next 101 times compute...');
-      console.log("Start at: ", (new Date()).toLocaleTimeString());
-      let outputs;
-      for (let i = 0; i < 101; i++) {
-        start = performance.now();
-        outputs = await fastStyleTransferNet.compute(inputBuffer);
-        let time = (performance.now() - start).toFixed(2);
-        times.push(Number(time));
-        $('#noticeInfo').html(`Complete ${i+1} of last 101 times predictions: ${time} ms`);
-        console.log(`101 predictions of time ${i+1}: ${time} ms`);
-      }
-      $('#noticeInfo').html('Done 101 times compute...');
-      console.log("End at: ", (new Date()).toLocaleTimeString());
-      populateTrendline(warmupTime.concat(times));
-      console.log('Done next 101 times compute.');
-      let timeString = "";
-      for(let time of warmupTime.concat(times)) {
-        timeString += time + ',';
-      }
-      console.log('all inference times:', timeString);
       const averageTime = (times.reduce((acc, curr) => acc + curr, 0) / times.length).toFixed(2);
       console.log('averageTime: ', averageTime);
       const minTime = Math.min(...times);
