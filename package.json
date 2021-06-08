@@ -32,6 +32,6 @@
   },
   "scripts": {
     "lint": "eslint . --ext .js",
-    "start": "http-server -S -C cert.pem -o"
+    "start": "http-server"
   }
 }
