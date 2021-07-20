@@ -1,23 +1,19 @@
 'use strict';
 
-import {MobileNetV2Nchw} from './mobilenet_nchw.js';
-import {MobileNetV2Nhwc} from './mobilenet_nhwc.js';
-import {SqueezeNetNchw} from './squeezenet_nchw.js';
-import {SqueezeNetNhwc} from './squeezenet_nhwc.js';
-import {ResNet50V2Nchw} from './resnet50v2_nchw.js';
-import {ResNet101V2Nhwc} from './resnet101v2_nhwc.js';
+import {DeepLabV3MNV2Nchw} from './deeplabv3_mnv2_nchw.js';
+import {DeepLabV3MNV2Nhwc} from './deeplabv3_mnv2_nhwc.js';
 import {showProgressComponent, readyShowResultComponents} from '../common/ui.js';
 import {getInputTensor, getMedianValue, sizeOfShape} from '../common/utils.js';
+import {Renderer} from './lib/renderer.js';
 
-const maxWidth = 380;
-const maxHeight = 380;
 const imgElement = document.getElementById('feedElement');
 imgElement.src = './images/test.jpg';
 const camElement = document.getElementById('feedMediaElement');
-let modelName = '';
+const outputCanvas = document.getElementById('outputCanvas');
+let modelName ='deeplabv3mnv2';
 let layout = 'nchw';
 let instanceType = modelName + layout;
-let rafReq;
+let shouldStopFrame = false;
 let isFirstTimeLoad = true;
 let inputType = 'image';
 let netInstance = null;
@@ -28,36 +24,39 @@ let buildTime = 0;
 let computeTime = 0;
 let inputOptions;
 let outputBuffer;
-
-async function fetchLabels(url) {
-  const response = await fetch(url);
-  const data = await response.text();
-  return data.split('\n');
-}
+let renderer;
+let hoverPos = null;
 
 $(document).ready(() => {
   $('.icdisplay').hide();
+  renderer = new Renderer(outputCanvas);
+  renderer.setup();
+});
+
+$(window).on('load', () => {
+  loadRenderUI();
 });
 
 $('#modelBtns .btn').on('change', async (e) => {
   modelName = $(e.target).attr('id');
-  if (inputType === 'camera') cancelAnimationFrame(rafReq);
+  shouldStopFrame = true;
   await main();
 });
 
 $('#layoutBtns .btn').on('change', async (e) => {
   layout = $(e.target).attr('id');
-  if (inputType === 'camera') cancelAnimationFrame(rafReq);
+  shouldStopFrame = true;
   await main();
 });
 
 // Click trigger to do inference with <img> element
 $('#img').click(async () => {
-  if (inputType === 'camera') cancelAnimationFrame(rafReq);
+  shouldStopFrame = true;
   if (stream !== null) {
     stopCamera();
   }
   inputType = 'image';
+  $('#pickimage').show();
   $('.shoulddisplay').hide();
   await main();
 });
@@ -65,22 +64,137 @@ $('#img').click(async () => {
 $('#imageFile').change((e) => {
   const files = e.target.files;
   if (files.length > 0) {
+    $('#feedElement').on('load', async () => {
+      await main();
+    });
     $('#feedElement').removeAttr('height');
     $('#feedElement').removeAttr('width');
     imgElement.src = URL.createObjectURL(files[0]);
   }
 });
 
-$('#feedElement').on('load', async () => {
-  await main();
-});
-
 // Click trigger to do inference with <video> media element
 $('#cam').click(async () => {
   inputType = 'camera';
+  $('#pickimage').hide();
   $('.shoulddisplay').hide();
   await main();
 });
+
+function loadRenderUI() {
+  const blurSlider = document.getElementById('blurSlider');
+  const refineEdgeSlider = document.getElementById('refineEdgeSlider');
+  const colorMapAlphaSlider = document.getElementById('colorMapAlphaSlider');
+  const selectBackgroundButton = document.getElementById('chooseBackground');
+  const clearBackgroundButton = document.getElementById('clearBackground');
+  const colorPicker = new iro.ColorPicker('#color-picker-container', {
+    width: 200,
+    height: 200,
+    color: {
+      r: renderer.bgColor[0],
+      g: renderer.bgColor[1],
+      b: renderer.bgColor[2],
+    },
+    markerRadius: 5,
+    sliderMargin: 12,
+    sliderHeight: 20,
+  });
+
+  $('.bg-value').html(colorPicker.color.hexString);
+
+  colorPicker.on('color:change', (color) => {
+    $('.bg-value').html(color.hexString);
+    renderer.bgColor = [color.rgb.r, color.rgb.g, color.rgb.b];
+  });
+
+  colorMapAlphaSlider.value = renderer.colorMapAlpha * 100;
+  $('.color-map-alpha-value').html(renderer.colorMapAlpha);
+
+  colorMapAlphaSlider.oninput = () => {
+    const alpha = colorMapAlphaSlider.value / 100;
+    $('.color-map-alpha-value').html(alpha);
+    renderer.colorMapAlpha = alpha;
+  };
+
+  blurSlider.value = renderer.blurRadius;
+  $('.blur-radius-value').html(renderer.blurRadius + 'px');
+
+  blurSlider.oninput = () => {
+    const blurRadius = parseInt(blurSlider.value);
+    $('.blur-radius-value').html(blurRadius + 'px');
+    renderer.blurRadius = blurRadius;
+  };
+
+  refineEdgeSlider.value = renderer.refineEdgeRadius;
+
+  if (refineEdgeSlider.value === '0') {
+    $('.refine-edge-value').html('DISABLED');
+  } else {
+    $('.refine-edge-value').html(refineEdgeSlider.value + 'px');
+  }
+
+  refineEdgeSlider.oninput = () => {
+    const refineEdgeRadius = parseInt(refineEdgeSlider.value);
+    if (refineEdgeRadius === 0) {
+      $('.refine-edge-value').html('DISABLED');
+    } else {
+      $('.refine-edge-value').html(refineEdgeRadius + 'px');
+    }
+    renderer.refineEdgeRadius = refineEdgeRadius;
+  };
+
+  $('.effects-select .btn input').filter((e) => {
+    return e.value === renderer.effect;
+  }).parent().toggleClass('active');
+
+  $('.controls').attr('data-select', renderer.effect);
+
+  $('.effects-select .btn').click((e) => {
+    e.preventDefault();
+    const effect = e.target.children[0].value;
+    $('.controls').attr('data-select', effect);
+    renderer.effect = effect;
+  });
+
+  selectBackgroundButton.addEventListener('change', (e) => {
+    const files = e.target.files;
+    if (files.length > 0) {
+      const img = new Image();
+      img.onload = () => {
+        renderer.backgroundImageSource = img;
+      };
+      img.src = URL.createObjectURL(files[0]);
+    }
+  }, false);
+
+  clearBackgroundButton.addEventListener('click', (e) => {
+    renderer.backgroundImageSource = null;
+  }, false);
+
+  outputCanvas.addEventListener('mousemove', (e) => {
+    const getMousePos = (canvas, evt) => {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: Math.ceil(evt.clientX - rect.left),
+        y: Math.ceil(evt.clientY - rect.top),
+      };
+    };
+
+    hoverPos = getMousePos(outputCanvas, e);
+    renderer.highlightHoverLabel(hoverPos, outputCanvas);
+  });
+
+  outputCanvas.addEventListener('mouseleave', (e) => {
+    hoverPos = null;
+    renderer.highlightHoverLabel(hoverPos, outputCanvas);
+  });
+}
+
+async function fetchLabels(url) {
+  const response = await fetch(url);
+  const data = await response.text();
+  return data.split('\n');
+}
 
 async function getMediaStream() {
   // Support 'user' facing mode at present
@@ -106,62 +220,44 @@ async function renderCamStream() {
   netInstance.compute(inputBuffer, outputBuffer);
   computeTime = (performance.now() - start).toFixed(2);
   console.log(`  done in ${computeTime} ms.`);
-  camElement.width = camElement.videoWidth;
-  camElement.height = camElement.videoHeight;
-  drawInput(camElement, 'camInCanvas');
   showPerfResult();
-  await drawOutput(outputBuffer, labels);
-  rafReq = requestAnimationFrame(renderCamStream);
-}
-
-// Get top 3 classes of labels from output buffer
-function getTopClasses(buffer, labels) {
-  const probs = Array.from(buffer);
-  const indexes = probs.map((prob, index) => [prob, index]);
-  const sorted = indexes.sort((a, b) => {
-    if (a[0] === b[0]) {
-      return 0;
-    }
-    return a[0] < b[0] ? -1 : 1;
-  });
-  sorted.reverse();
-  const classes = [];
-
-  for (let i = 0; i < 3; ++i) {
-    const prob = sorted[i][0];
-    const index = sorted[i][1];
-    const c = {
-      label: labels[index],
-      prob: (prob * 100).toFixed(2),
-    };
-    classes.push(c);
+  await drawOutput(camElement);
+  if (!shouldStopFrame) {
+    requestAnimationFrame(renderCamStream);
   }
-
-  return classes;
 }
 
-function drawInput(srcElement, canvasId) {
-  const inputCanvas = document.getElementById(canvasId);
-  const resizeRatio = Math.max(
-      Math.max(srcElement.width / maxWidth, srcElement.height / maxHeight), 1);
-  const scaledWidth = Math.floor(srcElement.width / resizeRatio);
-  const scaledHeight = Math.floor(srcElement.height / resizeRatio);
-  inputCanvas.height = scaledHeight;
-  inputCanvas.width = scaledWidth;
-  const ctx = inputCanvas.getContext('2d');
-  ctx.drawImage(srcElement, 0, 0, scaledWidth, scaledHeight);
-}
+async function drawOutput(srcElement) {
+  // TODO: move 'argMax' operation to graph once it is supported in WebNN spec.
+  // https://github.com/webmachinelearning/webnn/issues/184
+  const tf = navigator.ml.createContext().tf;
+  const a = tf.tensor(outputBuffer, netInstance.outputDimensions, 'float32');
+  let axis = 3;
+  if (layout === 'nchw') {
+    axis = 1;
+  }
+  const b = tf.argMax(a, axis);
+  const buffer = await b.buffer();
+  tf.dispose();
+  const argMaxBuffer = buffer.values;
+  const outputShape = b.shape;
 
-async function drawOutput(outputBuffer, labels) {
-  const labelClasses = getTopClasses(outputBuffer, labels);
+  const width = inputOptions.inputDimensions[2];
+  const imWidth = srcElement.naturalWidth | srcElement.videoWidth;
+  const imHeight = srcElement.naturalHeight | srcElement.videoHeight;
+  const resizeRatio = Math.max(Math.max(imWidth, imHeight) / width, 1);
+  const scaledWidth = Math.floor(imWidth / resizeRatio);
+  const scaledHeight = Math.floor(imHeight / resizeRatio);
 
-  $('#inferenceresult').show();
-  labelClasses.forEach((c, i) => {
-    const labelElement = document.getElementById(`label${i}`);
-    const probElement = document.getElementById(`prob${i}`);
-    labelElement.innerHTML = `${c.label}`;
-    probElement.innerHTML = `${c.prob}%`;
-  });
+  const segMap = {
+    data: argMaxBuffer,
+    outputShape: outputShape,
+    labels: labels,
+  };
+
+  renderer.uploadNewTexture(srcElement, [scaledWidth, scaledHeight]);
+  renderer.drawOutputs(segMap);
+  renderer.highlightHoverLabel(hoverPos, outputCanvas);
 }
 
 function showPerfResult(medianComputeTime = undefined) {
@@ -178,12 +274,8 @@ function showPerfResult(medianComputeTime = undefined) {
 
 function constructNetObject(type) {
   const netObject = {
-    'mobilenetnchw': new MobileNetV2Nchw(),
-    'mobilenetnhwc': new MobileNetV2Nhwc(),
-    'squeezenetnchw': new SqueezeNetNchw(),
-    'squeezenetnhwc': new SqueezeNetNhwc(),
-    'resnetnchw': new ResNet50V2Nchw(),
-    'resnetnhwc': new ResNet101V2Nhwc(),
+    'deeplabv3mnv2nchw': new DeepLabV3MNV2Nchw(),
+    'deeplabv3mnv2nhwc': new DeepLabV3MNV2Nhwc(),
   };
 
   return netObject[type];
@@ -198,10 +290,8 @@ function addWarning(msg) {
   container.insertBefore(div, container.childNodes[0]);
 }
 
-async function main() {
+export async function main() {
   try {
-    if (modelName === '') return;
-    if (isFirstTimeLoad) $('#hint').hide();
     let start;
     // Set 'numRuns' param to run inference multiple times
     const params = new URLSearchParams(location.search);
@@ -262,15 +352,15 @@ async function main() {
         medianComputeTime = medianComputeTime.toFixed(2);
         console.log(`  median compute time: ${medianComputeTime} ms`);
       }
-      console.log('outputBuffer: ', outputBuffer);
+      console.log('output: ', outputBuffer);
       await showProgressComponent('done', 'done', 'done');
       readyShowResultComponents();
-      drawInput(imgElement, 'inputCanvas');
-      await drawOutput(outputBuffer, labels);
+      await drawOutput(imgElement);
       showPerfResult(medianComputeTime);
     } else if (inputType === 'camera') {
       await getMediaStream();
       camElement.srcObject = stream;
+      shouldStopFrame = false;
       camElement.onloadedmediadata = await renderCamStream();
       await showProgressComponent('done', 'done', 'done');
       readyShowResultComponents();
