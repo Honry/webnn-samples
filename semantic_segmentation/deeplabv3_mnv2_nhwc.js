@@ -16,7 +16,7 @@ export class DeepLabV3MNV2Nhwc {
       labelUrl: './labels/labels.txt',
       inputDimensions: [1, 513, 513, 3],
     };
-    this.outputDimensions = [1, 513, 513, 21];
+    this.outputDimensions = [1, 513, 513];
   }
 
   async buildConv_(

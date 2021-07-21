@@ -1,7 +1,6 @@
 'use strict';
 
-import {DeepLabV3MNV2Nchw} from './deeplabv3_mnv2_nchw.js';
-import {DeepLabV3MNV2Nhwc} from './deeplabv3_mnv2_nhwc.js';
+import {DeepLabV3MNV2} from './deeplabv3_mnv2_tflite.js';
 import {showProgressComponent, readyShowResultComponents} from '../common/ui.js';
 import {getInputTensor, getMedianValue, sizeOfShape} from '../common/utils.js';
 import {Renderer} from './lib/renderer.js';
@@ -26,6 +25,7 @@ let inputOptions;
 let outputBuffer;
 let renderer;
 let hoverPos = null;
+let modelRunner;
 
 $(document).ready(() => {
   $('.icdisplay').hide();
@@ -220,24 +220,17 @@ async function renderCamStream() {
   const inputBuffer = getInputTensor(camElement, inputOptions);
   console.log('- Computing... ');
   const start = performance.now();
-  netInstance.compute(inputBuffer, outputBuffer);
+  outputBuffer = netInstance.compute(modelRunner, inputBuffer);
   computeTime = (performance.now() - start).toFixed(2);
   console.log(`  done in ${computeTime} ms.`);
   showPerfResult();
-  await drawOutput(camElement);
+  await drawOutput(outputBuffer, camElement);
   rafReq = requestAnimationFrame(renderCamStream);
 }
 
-async function drawOutput(srcElement) {
-  // TODO: move 'argMax' operation to graph once it is supported in WebNN spec.
-  // https://github.com/webmachinelearning/webnn/issues/184
-  const tf = navigator.ml.createContext().tf;
+async function drawOutput(outputBuffer, srcElement) {
   const a = tf.tensor(outputBuffer, netInstance.outputDimensions, 'float32');
-  let axis = 3;
-  if (layout === 'nchw') {
-    axis = 1;
-  }
-  const b = tf.argMax(a, axis);
+  const b = tf.argMax(a, 3);
   const buffer = await b.buffer();
   tf.dispose();
   const argMaxBuffer = buffer.values;
@@ -273,15 +266,6 @@ function showPerfResult(medianComputeTime = undefined) {
   }
 }
 
-function constructNetObject(type) {
-  const netObject = {
-    'deeplabv3mnv2nchw': new DeepLabV3MNV2Nchw(),
-    'deeplabv3mnv2nhwc': new DeepLabV3MNV2Nhwc(),
-  };
-
-  return netObject[type];
-}
-
 function addWarning(msg) {
   const div = document.createElement('div');
   div.setAttribute('class', 'alert alert-warning alert-dismissible fade show');
@@ -307,32 +291,21 @@ export async function main() {
     // Only do load() and build() when model first time loads and
     // there's new model choosed
     if (isFirstTimeLoad || instanceType !== modelName + layout) {
-      if (netInstance !== null) {
-        // Call dispose() to and avoid memory leak
-        netInstance.dispose();
-      }
       instanceType = modelName + layout;
-      netInstance = constructNetObject(instanceType);
+      netInstance = new DeepLabV3MNV2();
       inputOptions = netInstance.inputOptions;
       labels = await fetchLabels(inputOptions.labelUrl);
-      outputBuffer =
-          new Float32Array(sizeOfShape(netInstance.outputDimensions));
       isFirstTimeLoad = false;
       console.log(`- Model name: ${modelName}, Model layout: ${layout} -`);
       // UI shows model loading progress
       await showProgressComponent('current', 'pending', 'pending');
-      console.log('- Loading weights... ');
+      console.log('- Loading model... ');
       start = performance.now();
-      const outputOperand = await netInstance.load();
+      modelRunner = await netInstance.load();
       loadTime = (performance.now() - start).toFixed(2);
       console.log(`  done in ${loadTime} ms.`);
       // UI shows model building progress
       await showProgressComponent('done', 'current', 'pending');
-      console.log('- Building... ');
-      start = performance.now();
-      netInstance.build(outputOperand);
-      buildTime = (performance.now() - start).toFixed(2);
-      console.log(`  done in ${buildTime} ms.`);
     }
     // UI shows inferencing progress
     await showProgressComponent('done', 'done', 'current');
@@ -343,7 +316,7 @@ export async function main() {
       let medianComputeTime;
       for (let i = 0; i < numRuns; i++) {
         start = performance.now();
-        netInstance.compute(inputBuffer, outputBuffer);
+        outputBuffer = netInstance.compute(modelRunner, inputBuffer);
         computeTime = (performance.now() - start).toFixed(2);
         console.log(`  compute time ${i+1}: ${computeTime} ms`);
         computeTimeArray.push(Number(computeTime));
@@ -356,7 +329,7 @@ export async function main() {
       console.log('output: ', outputBuffer);
       await showProgressComponent('done', 'done', 'done');
       readyShowResultComponents();
-      await drawOutput(imgElement);
+      await drawOutput(outputBuffer, imgElement);
       showPerfResult(medianComputeTime);
     } else if (inputType === 'camera') {
       await getMediaStream();

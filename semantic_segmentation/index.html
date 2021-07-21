@@ -21,9 +21,6 @@
           <label class="btn btn-outline-info btn-sm mr-2 active">
             <input type="radio" name="layout" id="nchw" autocomplete="off" checked>NCHW
           </label>
-          <label class="btn btn-outline-info btn-sm">
-            <input type="radio" name="layout" id="nhwc" autocomplete="off">NHWC
-          </label>
         </div>
       </div>
       <div class ="col-8">
@@ -165,14 +162,6 @@
   </div>
   <img id='feedElement' hidden crossorigin='anonymous' src=''>
   <video id='feedMediaElement' autoplay playsinline hidden></video>
-  <script>
-    // This workaround is to fix jquery loading issue in electron.
-    // Refer to https://stackoverflow.com/questions/32621988/electron-jquery-is-not-defined.
-    if (typeof module === "object") {
-      window.tempModule = module;
-      module = undefined;
-    }
-  </script>
   <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"
     integrity="sha384-DfXdz2htPH0lsSSs5nCTpuj/zy4C+OGpamoFVy38MVBnE+IbbVYUew+OrCXaRkfj"
     crossorigin="anonymous"></script>
@@ -183,22 +172,20 @@
     integrity="sha384-B4gt1jrGC7Jh4AgTPSdUtOBvfO8shuf57BaghqFfPlYxofvL8/KUEfYiJOMMV+rV"
     crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@jaames/iro@5"></script>
-  <script src="https://webmachinelearning.github.io/webnn-polyfill/dist/webnn-polyfill.js"></script>
+  <!-- <script src="https://webmachinelearning.github.io/webnn-polyfill/dist/webnn-polyfill.js"></script>
+   -->
+  <script src="./tflite-support/tflite_model_runner_cc.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js" 
+    integrity="sha256-B72Do2A4yC67Y3aXueG3wQXWYjtr5RlI1D2jYDJJYsw=" 
+    crossorigin="anonymous"></script>
   <script>
     // To restore module after loading 3rd-party libraries.
     if (window.tempModule) module = window.tempModule;
   </script>
   <script type="module">
     import {main} from './main.js';
-    import {setPolyfillBackend} from '../common/utils.js';
 
     window.onload = async () => {
-      // There's bug when using 'dilations' options with WebGL backend,
-      // see https://github.com/tensorflow/tfjs/issues/5293.
-      // Use 'wasm' as default backend before the bug been fixed.
-      let backend = (new URLSearchParams(location.search)).get('backend');
-      backend = backend === null ? 'wasm' : backend;
-      await setPolyfillBackend(backend);
       await main();
     }
   </script>
