@@ -14,8 +14,8 @@
 ### Setup & Run
 
 ```sh
->  git clone --recurse-submodules https://github.com/webmachinelearning/webnn-samples
-> cd webnn-samples & npm install
+>  git clone --recurse-submodules https://github.com/honry/webnn-samples
+> cd webnn-samples & git checkout tflite-deeplab & npm install
 ```
 
 - Create private CA key and cert, name them as `key.pem` and `cert.pem`, move to webnn-samples directory. 
