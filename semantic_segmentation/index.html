@@ -15,19 +15,20 @@
   </nav>
   <div class='container' id='container'>
     <div class="row align-items-start mb-3 mt-3">
-      <div class="col">
-        <div class="btn-group-toggle" data-toggle="buttons" id="layoutBtns">
-          <label class="mr-3">Layout: </label>
-          <label class="btn btn-outline-info btn-sm mr-2 active">
-            <input type="radio" name="layout" id="nchw" autocomplete="off" checked>NCHW
-          </label>
-        </div>
-      </div>
-      <div class ="col-8">
+      <div class ="col">
         <div class="btn-group-toggle" data-toggle="buttons" id="modelBtns">
           <label class="mr-3">Model: </label>
           <label class="btn btn-outline-info btn-sm mr-2 active">
-            <input type="radio" name="model" id="deeplabv3mobilenetv2" autocomplete="off" checked>DeepLab V3 MobileNet V2
+            <input type="radio" name="model" id="deeplabnchw" autocomplete="off">DeepLab V3 NCHW
+          </label>
+          <label class="btn btn-outline-info btn-sm mr-2 active">
+            <input type="radio" name="model" id="deeplabnhwc" autocomplete="off">DeepLab V3 NHWC
+          </label>
+          <label class="btn btn-outline-info btn-sm mr-2 active">
+            <input type="radio" name="model" id="deeplabtflite" autocomplete="off">DeepLab V3 TFLite
+          </label>
+          <label class="btn btn-outline-info btn-sm mr-2 active">
+            <input type="radio" name="model" id="sstflite" autocomplete="off">Selfie Segmentation TFLite
           </label>
         </div>
       </div>
@@ -172,8 +173,7 @@
     integrity="sha384-B4gt1jrGC7Jh4AgTPSdUtOBvfO8shuf57BaghqFfPlYxofvL8/KUEfYiJOMMV+rV"
     crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@jaames/iro@5"></script>
-  <!-- <script src="https://webmachinelearning.github.io/webnn-polyfill/dist/webnn-polyfill.js"></script>
-   -->
+  <script src="https://webmachinelearning.github.io/webnn-polyfill/dist/webnn-polyfill.js"></script>
   <script src="./tflite-support/tflite_model_runner_cc.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js" 
     integrity="sha256-B72Do2A4yC67Y3aXueG3wQXWYjtr5RlI1D2jYDJJYsw=" 
@@ -184,9 +184,13 @@
   </script>
   <script type="module">
     import {main} from './main.js';
+    import {setPolyfillBackend} from '../common/utils.js';
 
     window.onload = async () => {
-      await main();
+      // There's bug when using 'dilations' options with WebGL backend,
+      // see https://github.com/tensorflow/tfjs/issues/5293.
+      // Use 'cpu' as default devicePreference before the bug been fixed.
+      await setPolyfillBackend('cpu');
     }
   </script>
 </body>

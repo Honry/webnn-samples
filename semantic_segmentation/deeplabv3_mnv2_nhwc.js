@@ -14,13 +14,13 @@ export class DeepLabV3MNV2Nhwc {
       scaledFlag: true,
       inputLayout: 'nhwc',
       labelUrl: './labels/labels.txt',
-      inputDimensions: [1, 513, 513, 3],
+      inputDimensions: [1, 321, 321, 3],
     };
-    this.outputDimensions = [1, 513, 513];
+    this.outputDimensions = [1, 321, 321, 21];
   }
 
   async buildConv_(
-      input, namePrefix, dwBiasSuffix = '', relu6 = true, options = undefined) {
+      input, namePrefix, dwBiasSuffix = '', relu6 = true, options = {}) {
     const prefix = this.weightsUrl_ + namePrefix;
     let weightsName = prefix + '.npy';
     let biasName = prefix + '_bn_offset.npy';
@@ -33,35 +33,24 @@ export class DeepLabV3MNV2Nhwc {
     }
     const weights = await buildConstantByNpy(this.builder_, weightsName);
     const bias = await buildConstantByNpy(this.builder_, biasName);
-
-    if (options !== undefined) {
-      options.inputLayout = 'nhwc';
-      options.filterLayout = 'ohwi';
-      options.autoPad = 'same-upper';
-    } else {
-      options = {
-        inputLayout: 'nhwc',
-        filterLayout: 'ohwi',
-        autoPad: 'same-upper',
-      };
-    }
+    options.inputLayout = 'nhwc';
+    options.autoPad = 'same-upper';
     if (namePrefix.includes('depthwise')) {
       options.filterLayout = 'ihwo';
+    } else {
+      options.filterLayout = 'ohwi';
     }
-
-    const add = this.builder_.add(
-        this.builder_.conv2d(input, weights, options),
-        this.builder_.reshape(bias, [1, 1, 1, -1]));
-
+    options.bias = bias;
     if (relu6) {
-      return this.builder_.clamp(
-          add,
-          {
-            minValue: this.builder_.constant(0.),
-            maxValue: this.builder_.constant(6.0),
-          });
+      // `relu6` in TFLite equals to `clamp` in WebNN API
+      const clampOptions = {};
+      clampOptions.minValue = this.builder_.constant(0);
+      clampOptions.maxValue = this.builder_.constant(6);
+      options.activation = this.builder_.clamp(clampOptions);
+    } else {
+      options.activation = undefined;
     }
-    return add;
+    return this.builder_.conv2d(input, weights, options);
   }
 
   async buildLinearBottleneck_(
@@ -84,8 +73,8 @@ export class DeepLabV3MNV2Nhwc {
     return conv1x1Linear;
   }
 
-  async load() {
-    const context = navigator.ml.createContext();
+  async load(devicePreference) {
+    const context = navigator.ml.createContext({devicePreference});
     this.builder_ = new MLGraphBuilder(context);
     const strides = [2, 2];
     const input = this.builder_.input('input',
@@ -132,18 +121,18 @@ export class DeepLabV3MNV2Nhwc {
 
     const conv3 = await this.buildConv_(bottleneck15, 'aspp0_Conv2D');
     const averagePool2d = this.builder_.averagePool2d(bottleneck15,
-        {windowDimensions: [65, 65], strides: [65, 65], layout: 'nhwc'});
+        {windowDimensions: [41, 41], strides: [41, 41], layout: 'nhwc'});
     const conv4 = await this.buildConv_(averagePool2d, 'image_pooling_Conv2D');
     const resample0 = this.builder_.resample(
-        conv4, {sizes: [1, 65, 65, 256], mode: 'linear'});
+        conv4, {sizes: [1, 41, 41, 256], mode: 'linear'});
     const concat = this.builder_.concat([resample0, conv3], 3);
 
     const conv5 = await this.buildConv_(concat, 'concat_projection_Conv2D');
     const conv6 = await this.buildConv_(conv5, 'logits_semantic', '', false);
     const resample1 = this.builder_.resample(
-        conv6, {sizes: [1, 65, 65, 21], mode: 'linear'});
+        conv6, {sizes: [1, 41, 41, 21], mode: 'linear'});
     return this.builder_.resample(
-        resample1, {sizes: [1, 513, 513, 21], mode: 'linear'});
+        resample1, {sizes: [1, 321, 321, 21], mode: 'linear'});
   }
 
   build(outputOperand) {

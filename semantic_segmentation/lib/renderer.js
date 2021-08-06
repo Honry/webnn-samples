@@ -792,7 +792,7 @@ export class Renderer {
   }
 
   maskSegMapPerson_(segmap) {
-    const PERSON_ID = 15;
+    const PERSON_ID = segmap.personId;
     const clippedHeight = this.clippedSize_[1];
     const clippedWidth = this.clippedSize_[0];
     const outputWidth = segmap.outputShape[1];

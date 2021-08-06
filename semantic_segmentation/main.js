@@ -1,17 +1,18 @@
 'use strict';
 
-import {DeepLabV3MNV2} from './deeplabv3_mnv2_tflite.js';
+import {DeepLabV3MNV2TFLite} from './deeplabv3_mnv2_tflite.js';
+import {SelfieSegmentation} from './seflie_segmentation_tflite.js';
+import {DeepLabV3MNV2Nchw} from './deeplabv3_mnv2_nchw.js';
+import {DeepLabV3MNV2Nhwc} from './deeplabv3_mnv2_nhwc.js';
 import {showProgressComponent, readyShowResultComponents} from '../common/ui.js';
-import {getInputTensor, getMedianValue, sizeOfShape} from '../common/utils.js';
+import {getInputTensor, getMedianValue, getDevicePreference, sizeOfShape} from '../common/utils.js';
 import {Renderer} from './lib/renderer.js';
 
 const imgElement = document.getElementById('feedElement');
 imgElement.src = './images/test.jpg';
 const camElement = document.getElementById('feedMediaElement');
 const outputCanvas = document.getElementById('outputCanvas');
-let modelName ='deeplabv3mnv2';
-let layout = 'nchw';
-let instanceType = modelName + layout;
+let instanceType = 'deeplabnchw';
 let rafReq;
 let isFirstTimeLoad = true;
 let inputType = 'image';
@@ -26,25 +27,21 @@ let outputBuffer;
 let renderer;
 let hoverPos = null;
 let modelRunner;
+let modelChanged = false;
 
 $(document).ready(() => {
   $('.icdisplay').hide();
-  renderer = new Renderer(outputCanvas);
-  renderer.setup();
 });
 
 $(window).on('load', () => {
+  renderer = new Renderer(outputCanvas);
+  renderer.setup();
   loadRenderUI();
 });
 
 $('#modelBtns .btn').on('change', async (e) => {
-  modelName = $(e.target).attr('id');
-  if (inputType === 'camera') cancelAnimationFrame(rafReq);
-  await main();
-});
-
-$('#layoutBtns .btn').on('change', async (e) => {
-  layout = $(e.target).attr('id');
+  modelChanged = true;
+  instanceType = $(e.target).attr('id');
   if (inputType === 'camera') cancelAnimationFrame(rafReq);
   await main();
 });
@@ -229,8 +226,13 @@ async function renderCamStream() {
 }
 
 async function drawOutput(outputBuffer, srcElement) {
+
   const a = tf.tensor(outputBuffer, netInstance.outputDimensions, 'float32');
-  const b = tf.argMax(a, 3);
+  let axis = 3;
+  if (instanceType === 'deeplabnchw') {
+    axis = 1;
+  }
+  const b = tf.argMax(a, axis);
   const buffer = await b.buffer();
   tf.dispose();
   const argMaxBuffer = buffer.values;
@@ -243,11 +245,21 @@ async function drawOutput(outputBuffer, srcElement) {
   const scaledWidth = Math.floor(imWidth / resizeRatio);
   const scaledHeight = Math.floor(imHeight / resizeRatio);
 
-  const segMap = {
+  let segMap = {
     data: argMaxBuffer,
     outputShape: outputShape,
     labels: labels,
+    personId: 15,
   };
+
+  if (instanceType == 'sstflite') {
+    segMap = {
+      data: outputBuffer,
+      outputShape: netInstance.outputDimensions,
+      labels: ['background', 'person'],
+      personId: 1,
+    }
+  }
 
   renderer.uploadNewTexture(srcElement, [scaledWidth, scaledHeight]);
   renderer.drawOutputs(segMap);
@@ -264,6 +276,17 @@ function showPerfResult(medianComputeTime = undefined) {
     $('#computeLabel').html('Inference time:');
     $('#computeTime').html(`${computeTime} ms`);
   }
+}
+
+function constructNetObject(type) {
+  const netObject = {
+    'deeplabnchw': new DeepLabV3MNV2Nchw(),
+    'deeplabnhwc': new DeepLabV3MNV2Nhwc(),
+    'deeplabtflite': new DeepLabV3MNV2TFLite(),
+    'sstflite': new SelfieSegmentation(),
+  };
+
+  return netObject[type];
 }
 
 function addWarning(msg) {
@@ -290,22 +313,30 @@ export async function main() {
     }
     // Only do load() and build() when model first time loads and
     // there's new model choosed
-    if (isFirstTimeLoad || instanceType !== modelName + layout) {
-      instanceType = modelName + layout;
-      netInstance = new DeepLabV3MNV2();
+    if (isFirstTimeLoad || modelChanged) {
+      modelChanged = false;
+      netInstance = constructNetObject(instanceType);
       inputOptions = netInstance.inputOptions;
       labels = await fetchLabels(inputOptions.labelUrl);
       isFirstTimeLoad = false;
-      console.log(`- Model name: ${modelName}, Model layout: ${layout} -`);
+      console.log(`- Model: ${instanceType}-`);
       // UI shows model loading progress
       await showProgressComponent('current', 'pending', 'pending');
       console.log('- Loading model... ');
       start = performance.now();
-      modelRunner = await netInstance.load();
+      const devicePreference = getDevicePreference();
+      modelRunner = await netInstance.load(devicePreference);
       loadTime = (performance.now() - start).toFixed(2);
       console.log(`  done in ${loadTime} ms.`);
       // UI shows model building progress
       await showProgressComponent('done', 'current', 'pending');
+      if (instanceType === 'deeplabnchw' || instanceType === 'deeplabnhwc') {
+        console.log('- Building... ');
+        start = performance.now();
+        netInstance.build(modelRunner);
+        buildTime = (performance.now() - start).toFixed(2);
+        console.log(`  done in ${buildTime} ms.`);
+      }
     }
     // UI shows inferencing progress
     await showProgressComponent('done', 'done', 'current');
@@ -316,7 +347,12 @@ export async function main() {
       let medianComputeTime;
       for (let i = 0; i < numRuns; i++) {
         start = performance.now();
-        outputBuffer = netInstance.compute(modelRunner, inputBuffer);
+        outputBuffer = new Float32Array(sizeOfShape(netInstance.outputDimensions));
+        if (instanceType === 'deeplabnchw' || instanceType === 'deeplabnhwc') {
+          netInstance.compute(inputBuffer, outputBuffer);
+        } else {
+          outputBuffer = netInstance.compute(modelRunner, inputBuffer);
+        }
         computeTime = (performance.now() - start).toFixed(2);
         console.log(`  compute time ${i+1}: ${computeTime} ms`);
         computeTimeArray.push(Number(computeTime));

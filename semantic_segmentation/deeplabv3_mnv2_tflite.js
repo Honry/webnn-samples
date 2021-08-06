@@ -3,7 +3,7 @@
 /* eslint max-len: ["error", {"code": 120}] */
 
 // DeepLab V3 MobileNet V2 model with tflite-support
-export class DeepLabV3MNV2 {
+export class DeepLabV3MNV2TFLite {
   constructor() {
     this.inputOptions = {
         mean: [127.5, 127.5, 127.5],
@@ -11,19 +11,19 @@ export class DeepLabV3MNV2 {
         scaledFlag: true,
         inputLayout: 'nhwc',
         labelUrl: './labels/labels.txt',
-        inputDimensions: [1, 513, 513, 3], // deeplab
+        inputDimensions: [1, 321, 321, 3], // deeplab
         // inputDimensions: [1,224,224,3],
         // inputDimensions: [1,299,299,3],
         // inputDimensions: [1,256,256,3], // selfie_segmentation
       };
-      this.outputDimensions = [1,513,513,21];
+      this.outputDimensions = [1,321,321,21];
     //   this.outputDimensions = [1, 1001];
   }
 
   async load() {
   // Create the model runner with the model.
 
-  const MODEL_PATH = './models/deeplab_mobilenetv2_no_argmax.tflite';
+  const MODEL_PATH = './models/deeplab_mobilenetv2_321_no_argmax.tflite';
 //   const MODEL_PATH = './models/selfie_segmentation.tflite';
 // const MODEL_PATH = './tflite-support/mobilenetv2.tflite';
 
