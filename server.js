@@ -20,12 +20,12 @@ app.use(express.urlencoded({
   extended: true
 }));
 
-app.listen("8083");
-console.log('https://127.0.0.1:8083/semantic_segmentation/')
+// app.listen("8083");
+// console.log('http://127.0.0.1:8083/semantic_segmentation/')
 
 // Start HTTPS server
 https.createServer({
     cert: fs.readFileSync('cert.pem'),
     key: fs.readFileSync('key.pem'),
 }, app).listen("8088");
-console.log('https://127.0.0.1:8088/semantic_segmentation')
+console.log('https://127.0.0.1:8088/semantic_segmentation/')

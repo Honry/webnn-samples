@@ -16,7 +16,11 @@
 ```sh
 >  git clone --recurse-submodules https://github.com/webmachinelearning/webnn-samples
 > cd webnn-samples & npm install
-> npm start
 ```
 
-Open the web browser and navigate to http://localhost:8080
+- Create private CA key and cert, name them as `key.pem` and `cert.pem`, move to webnn-samples directory. 
+(Tip: how to create CA key and cert: https://galeracluster.com/library/documentation/ssl-cert.html)
+
+- Start https server via `node server.js`
+
+- Open the web browser and navigate to https://127.0.0.1:8088/semantic_segmentation/
