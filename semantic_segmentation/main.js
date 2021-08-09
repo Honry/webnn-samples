@@ -217,7 +217,11 @@ async function renderCamStream() {
   const inputBuffer = getInputTensor(camElement, inputOptions);
   console.log('- Computing... ');
   const start = performance.now();
-  outputBuffer = netInstance.compute(modelRunner, inputBuffer);
+  if (instanceType === 'deeplabnchw' || instanceType === 'deeplabnhwc') {
+    netInstance.compute(inputBuffer, outputBuffer);
+  } else {
+    outputBuffer = netInstance.compute(modelRunner, inputBuffer);
+  }
   computeTime = (performance.now() - start).toFixed(2);
   console.log(`  done in ${computeTime} ms.`);
   showPerfResult();
@@ -340,6 +344,7 @@ export async function main() {
     }
     // UI shows inferencing progress
     await showProgressComponent('done', 'done', 'current');
+    outputBuffer = new Float32Array(sizeOfShape(netInstance.outputDimensions));
     if (inputType === 'image') {
       const inputBuffer = getInputTensor(imgElement, inputOptions);
       console.log('- Computing... ');
@@ -347,7 +352,6 @@ export async function main() {
       let medianComputeTime;
       for (let i = 0; i < numRuns; i++) {
         start = performance.now();
-        outputBuffer = new Float32Array(sizeOfShape(netInstance.outputDimensions));
         if (instanceType === 'deeplabnchw' || instanceType === 'deeplabnhwc') {
           netInstance.compute(inputBuffer, outputBuffer);
         } else {
