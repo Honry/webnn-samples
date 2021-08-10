@@ -41,7 +41,8 @@ export class SelfieSegmentation {
       module.TFLiteWebModelRunner.CreateFromBufferAndOptions(
           offset, modelBytes.length, {
             numThreads: Math.min(
-                4, Math.max(1, (navigator.hardwareConcurrency || 1) / 2))
+                4, Math.max(1, (navigator.hardwareConcurrency || 1) / 2)),
+            enableWebNNDelegate: false
           });
   if (!modelRunnerResult.ok()) {
     throw new Error(

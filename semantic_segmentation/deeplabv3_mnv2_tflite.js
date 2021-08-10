@@ -41,7 +41,8 @@ export class DeepLabV3MNV2TFLite {
       module.TFLiteWebModelRunner.CreateFromBufferAndOptions(
           offset, modelBytes.length, {
             numThreads: Math.min(
-                4, Math.max(1, (navigator.hardwareConcurrency || 1) / 2))
+                4, Math.max(1, (navigator.hardwareConcurrency || 1) / 2)),
+            enableWebNNDelegate: true
           });
   if (!modelRunnerResult.ok()) {
     throw new Error(
