@@ -1,6 +1,7 @@
 'use strict';
 
 import {DeepLabV3MNV2TFLite} from './deeplabv3_mnv2_tflite.js';
+import {DeepLabV3MNV2ONNX} from './deeplabv3_mnv2_onnx.js';
 import {SelfieSegmentation} from './seflie_segmentation_tflite.js';
 import {DeepLabV3MNV2Nchw} from './deeplabv3_mnv2_nchw.js';
 import {DeepLabV3MNV2Nhwc} from './deeplabv3_mnv2_nhwc.js';
@@ -26,7 +27,7 @@ let inputOptions;
 let outputBuffer;
 let renderer;
 let hoverPos = null;
-let modelRunner;
+let model;
 let modelChanged = false;
 
 $(document).ready(() => {
@@ -219,8 +220,10 @@ async function renderCamStream() {
   const start = performance.now();
   if (instanceType === 'deeplabnchw' || instanceType === 'deeplabnhwc') {
     netInstance.compute(inputBuffer, outputBuffer);
+  } else if (instanceType === 'deeplabonnx') {
+    outputBuffer = await netInstance.compute(model, inputBuffer);
   } else {
-    outputBuffer = netInstance.compute(modelRunner, inputBuffer);
+    outputBuffer = netInstance.compute(model, inputBuffer);
   }
   computeTime = (performance.now() - start).toFixed(2);
   console.log(`  done in ${computeTime} ms.`);
@@ -286,6 +289,7 @@ function constructNetObject(type) {
     'deeplabnchw': new DeepLabV3MNV2Nchw(),
     'deeplabnhwc': new DeepLabV3MNV2Nhwc(),
     'deeplabtflite': new DeepLabV3MNV2TFLite(),
+    'deeplabonnx': new DeepLabV3MNV2ONNX(),
     'sstflite': new SelfieSegmentation(),
   };
 
@@ -328,7 +332,7 @@ export async function main() {
       console.log('- Loading model... ');
       start = performance.now();
       const devicePreference = getDevicePreference();
-      modelRunner = await netInstance.load(devicePreference);
+      model = await netInstance.load(devicePreference);
       loadTime = (performance.now() - start).toFixed(2);
       console.log(`  done in ${loadTime} ms.`);
       // UI shows model building progress
@@ -336,7 +340,7 @@ export async function main() {
       if (instanceType === 'deeplabnchw' || instanceType === 'deeplabnhwc') {
         console.log('- Building... ');
         start = performance.now();
-        netInstance.build(modelRunner);
+        netInstance.build(model);
         buildTime = (performance.now() - start).toFixed(2);
         console.log(`  done in ${buildTime} ms.`);
       }
@@ -353,8 +357,10 @@ export async function main() {
         start = performance.now();
         if (instanceType === 'deeplabnchw' || instanceType === 'deeplabnhwc') {
           netInstance.compute(inputBuffer, outputBuffer);
+        } else if (instanceType === 'deeplabonnx') {
+          outputBuffer = await netInstance.compute(model, inputBuffer);
         } else {
-          outputBuffer = netInstance.compute(modelRunner, inputBuffer);
+          outputBuffer = netInstance.compute(model, inputBuffer);
         }
         computeTime = (performance.now() - start).toFixed(2);
         console.log(`  compute time ${i+1}: ${computeTime} ms`);

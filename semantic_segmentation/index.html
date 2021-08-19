@@ -28,6 +28,9 @@
             <input type="radio" name="model" id="deeplabtflite" autocomplete="off">DeepLab V3 TFLite
           </label>
           <label class="btn btn-outline-info btn-sm mr-2 active">
+            <input type="radio" name="model" id="deeplabonnx" autocomplete="off">DeepLab V3 ONNX
+          </label>
+          <label class="btn btn-outline-info btn-sm mr-2 active">
             <input type="radio" name="model" id="sstflite" autocomplete="off">Selfie Segmentation TFLite
           </label>
         </div>
@@ -183,9 +186,10 @@
   <script src="https://cdn.jsdelivr.net/npm/@jaames/iro@5"></script>
   <script src="https://webmachinelearning.github.io/webnn-polyfill/dist/webnn-polyfill.js" crossorigin="anonymous"></script>
   <script src="./tflite-support/tflite_model_runner_cc_st.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js" 
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"
     integrity="sha256-B72Do2A4yC67Y3aXueG3wQXWYjtr5RlI1D2jYDJJYsw=" 
     crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js" crossorigin="anonymous"></script>
   <script>
     // To restore module after loading 3rd-party libraries.
     if (window.tempModule) module = window.tempModule;
