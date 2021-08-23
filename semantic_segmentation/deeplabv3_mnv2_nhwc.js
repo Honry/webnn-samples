@@ -11,10 +11,11 @@ export class DeepLabV3MNV2Nhwc {
     this.inputOptions = {
       mean: [127.5, 127.5, 127.5],
       std: [127.5, 127.5, 127.5],
-      scaledFlag: true,
+      scaledFlag: false,
       inputLayout: 'nhwc',
       labelUrl: './labels/labels.txt',
       inputDimensions: [1, 321, 321, 3],
+      inputResolution: [321, 321],
     };
     this.outputDimensions = [1, 321, 321, 21];
   }

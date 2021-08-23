@@ -7,7 +7,7 @@ import {DeepLabV3MNV2Nchw} from './deeplabv3_mnv2_nchw.js';
 import {DeepLabV3MNV2Nhwc} from './deeplabv3_mnv2_nhwc.js';
 import {showProgressComponent, readyShowResultComponents} from '../common/ui.js';
 import {getInputTensor, getMedianValue, getDevicePreference, sizeOfShape} from '../common/utils.js';
-import {Renderer} from './lib/renderer.js';
+import {buildWebGL2Pipeline} from './lib/webgl2/webgl2Pipeline.js';
 
 const imgElement = document.getElementById('feedElement');
 imgElement.src = './images/test.jpg';
@@ -25,19 +25,16 @@ let buildTime = 0;
 let computeTime = 0;
 let inputOptions;
 let outputBuffer;
-let renderer;
-let hoverPos = null;
 let model;
 let modelChanged = false;
+let backgroundImageSource = document.getElementById('00-img');
+let backgroundType = 'img'; // 'none', 'blur', 'image'
 
 $(document).ready(() => {
   $('.icdisplay').hide();
 });
 
 $(window).on('load', () => {
-  renderer = new Renderer(outputCanvas);
-  renderer.setup();
-  loadRenderUI();
 });
 
 $('#modelBtns .btn').on('change', async (e) => {
@@ -82,114 +79,20 @@ $('#cam').click(async () => {
   await main();
 });
 
-function loadRenderUI() {
-  const blurSlider = document.getElementById('blurSlider');
-  const refineEdgeSlider = document.getElementById('refineEdgeSlider');
-  const colorMapAlphaSlider = document.getElementById('colorMapAlphaSlider');
-  const selectBackgroundButton = document.getElementById('chooseBackground');
-  const clearBackgroundButton = document.getElementById('clearBackground');
-  const colorPicker = new iro.ColorPicker('#color-picker-container', {
-    width: 200,
-    height: 200,
-    color: {
-      r: renderer.bgColor[0],
-      g: renderer.bgColor[1],
-      b: renderer.bgColor[2],
-    },
-    markerRadius: 5,
-    sliderMargin: 12,
-    sliderHeight: 20,
-  });
-
-  $('.bg-value').html(colorPicker.color.hexString);
-
-  colorPicker.on('color:change', (color) => {
-    $('.bg-value').html(color.hexString);
-    renderer.bgColor = [color.rgb.r, color.rgb.g, color.rgb.b];
-  });
-
-  colorMapAlphaSlider.value = renderer.colorMapAlpha * 100;
-  $('.color-map-alpha-value').html(renderer.colorMapAlpha);
-
-  colorMapAlphaSlider.oninput = () => {
-    const alpha = colorMapAlphaSlider.value / 100;
-    $('.color-map-alpha-value').html(alpha);
-    renderer.colorMapAlpha = alpha;
-  };
-
-  blurSlider.value = renderer.blurRadius;
-  $('.blur-radius-value').html(renderer.blurRadius + 'px');
-
-  blurSlider.oninput = () => {
-    const blurRadius = parseInt(blurSlider.value);
-    $('.blur-radius-value').html(blurRadius + 'px');
-    renderer.blurRadius = blurRadius;
-  };
-
-  refineEdgeSlider.value = renderer.refineEdgeRadius;
-
-  if (refineEdgeSlider.value === '0') {
-    $('.refine-edge-value').html('DISABLED');
+$('#gallery .gallery-item').click(async (e) => {
+  $('#gallery .gallery-item').removeClass('hl');
+  $(e.target).parent().addClass('hl');
+  const backgroundTypeId = $(e.target).attr('id');
+  backgroundImageSource = document.getElementById(backgroundTypeId);
+  if (backgroundTypeId === 'no-img') {
+    backgroundType = 'none';
+  } else if (backgroundTypeId === 'blur-img') {
+    backgroundType = 'blur';
   } else {
-    $('.refine-edge-value').html(refineEdgeSlider.value + 'px');
+    backgroundType = 'image';
   }
-
-  refineEdgeSlider.oninput = () => {
-    const refineEdgeRadius = parseInt(refineEdgeSlider.value);
-    if (refineEdgeRadius === 0) {
-      $('.refine-edge-value').html('DISABLED');
-    } else {
-      $('.refine-edge-value').html(refineEdgeRadius + 'px');
-    }
-    renderer.refineEdgeRadius = refineEdgeRadius;
-  };
-
-  $('.effects-select .btn input').filter((e) => {
-    return e.value === renderer.effect;
-  }).parent().toggleClass('active');
-
-  $('.controls').attr('data-select', renderer.effect);
-
-  $('.effects-select .btn').click((e) => {
-    e.preventDefault();
-    const effect = e.target.children[0].value;
-    $('.controls').attr('data-select', effect);
-    renderer.effect = effect;
-  });
-
-  selectBackgroundButton.addEventListener('change', (e) => {
-    const files = e.target.files;
-    if (files.length > 0) {
-      const img = new Image();
-      img.onload = () => {
-        renderer.backgroundImageSource = img;
-      };
-      img.src = URL.createObjectURL(files[0]);
-    }
-  }, false);
-
-  clearBackgroundButton.addEventListener('click', (e) => {
-    renderer.backgroundImageSource = null;
-  }, false);
-
-  outputCanvas.addEventListener('mousemove', (e) => {
-    const getMousePos = (canvas, evt) => {
-      const rect = canvas.getBoundingClientRect();
-      return {
-        x: Math.ceil(evt.clientX - rect.left),
-        y: Math.ceil(evt.clientY - rect.top),
-      };
-    };
-
-    hoverPos = getMousePos(outputCanvas, e);
-    renderer.highlightHoverLabel(hoverPos, outputCanvas);
-  });
-
-  outputCanvas.addEventListener('mouseleave', (e) => {
-    hoverPos = null;
-    renderer.highlightHoverLabel(hoverPos, outputCanvas);
-  });
-}
+  await drawOutput(outputBuffer, imgElement);
+});
 
 async function fetchLabels(url) {
   const response = await fetch(url);
@@ -233,43 +136,38 @@ async function renderCamStream() {
 }
 
 async function drawOutput(outputBuffer, srcElement) {
-
-  const [argMaxBuffer, outputShape] = tf.tidy(() => {
-    const a = tf.tensor(outputBuffer, netInstance.outputDimensions, 'float32');
-    let axis = 3;
-    if (instanceType === 'deeplabnchw') {
-      axis = 1;
-    }
-    const b = tf.argMax(a, axis);
-    return [b.dataSync(), b.shape];
-  });
-
-  const width = inputOptions.inputDimensions[2];
-  const imWidth = srcElement.naturalWidth | srcElement.videoWidth;
-  const imHeight = srcElement.naturalHeight | srcElement.videoHeight;
-  const resizeRatio = Math.max(Math.max(imWidth, imHeight) / width, 1);
-  const scaledWidth = Math.floor(imWidth / resizeRatio);
-  const scaledHeight = Math.floor(imHeight / resizeRatio);
-
-  let segMap = {
-    data: argMaxBuffer,
-    outputShape: outputShape,
-    labels: labels,
-    personId: 15,
-  };
-
-  if (instanceType == 'sstflite') {
-    segMap = {
-      data: outputBuffer,
-      outputShape: netInstance.outputDimensions,
-      labels: ['background', 'person'],
-      personId: 1,
-    }
+  if (instanceType.startsWith('deeplab')) {
+    outputBuffer = tf.tidy(() => {
+      const a = tf.tensor(outputBuffer, netInstance.outputDimensions, 'float32');
+      let axis = 3;
+      if (instanceType === 'deeplabnchw') {
+        axis = 1;
+      }
+      const b = tf.argMax(a, axis);
+      const c = tf.tensor(b.dataSync(), b.shape, 'float32');
+      return c.dataSync();
+    });
   }
-
-  renderer.uploadNewTexture(srcElement, [scaledWidth, scaledHeight]);
-  renderer.drawOutputs(segMap);
-  renderer.highlightHoverLabel(hoverPos, outputCanvas);
+  console.log('output: ', outputBuffer);
+  outputCanvas.width = srcElement.naturalWidth | srcElement.videoWidth;
+  outputCanvas.height = srcElement.naturalHeight | srcElement.videoHeight;
+  const pipeline = buildWebGL2Pipeline(
+    srcElement,
+    backgroundImageSource,
+    backgroundType,
+    inputOptions.inputResolution,
+    outputCanvas,
+    outputBuffer,
+  );
+  const postProcessingConfig = {
+    smoothSegmentationMask: true,
+    jointBilateralFilter: {sigmaSpace: 1, sigmaColor: 0.1},
+    coverage: [0.5, 0.75],
+    lightWrapping: 0.3,
+    blendMode: 'screen',
+  }
+  pipeline.updatePostProcessingConfig(postProcessingConfig);
+  await pipeline.render();
 }
 
 function showPerfResult(medianComputeTime = undefined) {
@@ -371,7 +269,7 @@ export async function main() {
         medianComputeTime = medianComputeTime.toFixed(2);
         console.log(`  median compute time: ${medianComputeTime} ms`);
       }
-      console.log('output: ', outputBuffer);
+
       await showProgressComponent('done', 'done', 'done');
       readyShowResultComponents();
       await drawOutput(outputBuffer, imgElement);

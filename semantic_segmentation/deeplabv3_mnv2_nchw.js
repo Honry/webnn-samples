@@ -15,10 +15,11 @@ export class DeepLabV3MNV2Nchw {
     this.inputOptions = {
       mean: [127.5, 127.5, 127.5],
       std: [127.5, 127.5, 127.5],
-      scaledFlag: true,
+      scaledFlag: false,
       inputLayout: 'nchw',
       labelUrl: './labels/labels.txt',
       inputDimensions: [1, 3, 321, 321],
+      inputResolution: [321, 321],
     };
     this.outputDimensions = [1, 21, 321, 321];
   }

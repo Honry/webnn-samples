@@ -8,10 +8,11 @@ export class SelfieSegmentation {
     this.inputOptions = {
         mean: [127.5, 127.5, 127.5],
         std: [127.5, 127.5, 127.5],
-        scaledFlag: true,
+        scaledFlag: false,
         inputLayout: 'nhwc',
         labelUrl: './labels/labels.txt',
         inputDimensions: [1, 256, 256, 3], // deeplab
+        inputResolution: [256, 256],
         // inputDimensions: [1,224,224,3],
         // inputDimensions: [1,299,299,3],
         // inputDimensions: [1,256,256,3], // selfie_segmentation
@@ -24,8 +25,6 @@ export class SelfieSegmentation {
   // Create the model runner with the model.
 
   const MODEL_PATH = './models/selfie_segmentation.tflite';
-//   const MODEL_PATH = './models/selfie_segmentation.tflite';
-// const MODEL_PATH = './tflite-support/mobilenetv2.tflite';
 
   // Load WASM module and model.
   const [module, modelArrayBuffer] = await Promise.all([
@@ -47,7 +46,7 @@ export class SelfieSegmentation {
           });
   if (!modelRunnerResult.ok()) {
     throw new Error(
-        'Failed to create TFLiteWebModelRunner: ' + modelRunner.errorMessage());
+        'Failed to create TFLiteWebModelRunner: ' + modelRunnerResult.errorMessage());
   }
   const modelRunner = modelRunnerResult.value();
   return modelRunner;

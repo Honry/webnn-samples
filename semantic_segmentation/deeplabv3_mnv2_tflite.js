@@ -8,24 +8,19 @@ export class DeepLabV3MNV2TFLite {
     this.inputOptions = {
         mean: [127.5, 127.5, 127.5],
         std: [127.5, 127.5, 127.5],
-        scaledFlag: true,
+        scaledFlag: false,
         inputLayout: 'nhwc',
         labelUrl: './labels/labels.txt',
         inputDimensions: [1, 321, 321, 3], // deeplab
-        // inputDimensions: [1,224,224,3],
-        // inputDimensions: [1,299,299,3],
-        // inputDimensions: [1,256,256,3], // selfie_segmentation
+        inputResolution: [321, 321],
       };
       this.outputDimensions = [1,321,321,21];
-    //   this.outputDimensions = [1, 1001];
   }
 
   async load() {
   // Create the model runner with the model.
 
   const MODEL_PATH = './models/deeplab_mobilenetv2_321_no_argmax.tflite';
-//   const MODEL_PATH = './models/selfie_segmentation.tflite';
-// const MODEL_PATH = './tflite-support/mobilenetv2.tflite';
 
   // Load WASM module and model.
   const [module, modelArrayBuffer] = await Promise.all([
@@ -35,7 +30,6 @@ export class DeepLabV3MNV2TFLite {
   const modelBytes = new Uint8Array(modelArrayBuffer);
   const offset = module._malloc(modelBytes.length);
   module.HEAPU8.set(modelBytes, offset);
-
   // Create model runner.
   const modelRunnerResult =
       module.TFLiteWebModelRunner.CreateFromBufferAndOptions(
@@ -47,7 +41,7 @@ export class DeepLabV3MNV2TFLite {
           });
   if (!modelRunnerResult.ok()) {
     throw new Error(
-        'Failed to create TFLiteWebModelRunner: ' + modelRunner.errorMessage());
+        'Failed to create TFLiteWebModelRunner: ' + modelRunnerResult.errorMessage());
   }
   const modelRunner = modelRunnerResult.value();
   return modelRunner;
