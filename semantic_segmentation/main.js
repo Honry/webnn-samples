@@ -136,6 +136,8 @@ async function renderCamStream() {
 }
 
 async function drawOutput(outputBuffer, srcElement) {
+  const tf = navigator.ml.createContext().tf;
+
   if (instanceType.startsWith('deeplab')) {
     outputBuffer = tf.tidy(() => {
       const a = tf.tensor(outputBuffer, netInstance.outputDimensions, 'float32');
