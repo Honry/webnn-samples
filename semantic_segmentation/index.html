@@ -152,12 +152,11 @@
   <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"
     integrity="sha384-B4gt1jrGC7Jh4AgTPSdUtOBvfO8shuf57BaghqFfPlYxofvL8/KUEfYiJOMMV+rV"
     crossorigin="anonymous"></script>
-  <!-- <script src="https://webmachinelearning.github.io/webnn-polyfill/dist/webnn-polyfill.js" crossorigin="anonymous"></script> -->
-  <script src='../webnn-polyfill.js'></script>
+  <script src="https://webmachinelearning.github.io/webnn-polyfill/dist/webnn-polyfill.js" crossorigin="anonymous"></script>
   <script src="./tflite-support/tflite_model_runner_cc_simd.js"></script>
-  <!-- <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"
-    integrity="sha256-B72Do2A4yC67Y3aXueG3wQXWYjtr5RlI1D2jYDJJYsw=" 
-    crossorigin="anonymous"></script> -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.9.0/dist/tf.min.js"
+    integrity="sha256-28ZvjeNGrGNEIj9/2D8YAPE6Vm5JSvvDs+LI4ED31x8="
+    crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js" crossorigin="anonymous"></script>
   <script>
     // To restore module after loading 3rd-party libraries.
@@ -168,9 +167,6 @@
     import {setPolyfillBackend} from '../common/utils.js';
 
     window.onload = async () => {
-      // There's bug when using 'dilations' options with WebGL backend,
-      // see https://github.com/tensorflow/tfjs/issues/5293.
-      // Use 'cpu' as default devicePreference before the bug been fixed.
       await setPolyfillBackend();
     }
   </script>
