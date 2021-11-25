@@ -21,7 +21,7 @@ export class DeepLabV3MNV2ONNX {
   // Create the model runner with the model.
   const model = './models/deeplab_mobilenetv2_321_no_argmax.onnx';
   const session = ort.InferenceSession.create(model, {
-      executionProviders: ['wasm', {name: 'webnn', devicePreference: "wasm"}], logSeverityLevel: 0 });
+      executionProviders: ['wasm', {name: 'webnn', devicePreference: 1}], logSeverityLevel: 0 });
   return session;
   }
 
