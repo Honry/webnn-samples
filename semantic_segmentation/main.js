@@ -6,7 +6,7 @@ import {SelfieSegmentation} from './seflie_segmentation_tflite.js';
 import {DeepLabV3MNV2Nchw} from './deeplabv3_mnv2_nchw.js';
 import {DeepLabV3MNV2Nhwc} from './deeplabv3_mnv2_nhwc.js';
 import {showProgressComponent, readyShowResultComponents} from '../common/ui.js';
-import {getInputTensor, getMedianValue, getDevicePreference, sizeOfShape} from '../common/utils.js';
+import {getVideoFrame, getInputTensor, getMedianValue, getDevicePreference, sizeOfShape} from '../common/utils.js';
 import {buildWebGL2Pipeline} from './lib/webgl2/webgl2Pipeline.js';
 
 const imgElement = document.getElementById('feedElement');
@@ -118,7 +118,14 @@ function stopCamera() {
  * This method is used to render live camera tab.
  */
 async function renderCamStream() {
+  // If the video element's readyState is 0, the video's width and height are 0.
+  // So check the readState here to make sure it is greater than 0.
+  if(camElement.readyState === 0) {
+    rafReq = requestAnimationFrame(renderCamStream);
+    return;
+  }
   const inputBuffer = getInputTensor(camElement, inputOptions);
+  const inputCanvas = getVideoFrame(camElement);
   console.log('- Computing... ');
   const start = performance.now();
   if (instanceType === 'deeplabnchw' || instanceType === 'deeplabnhwc') {
@@ -131,7 +138,7 @@ async function renderCamStream() {
   computeTime = (performance.now() - start).toFixed(2);
   console.log(`  done in ${computeTime} ms.`);
   showPerfResult();
-  await drawOutput(outputBuffer, camElement);
+  await drawOutput(outputBuffer, inputCanvas);
   rafReq = requestAnimationFrame(renderCamStream);
 }
 
@@ -150,8 +157,8 @@ async function drawOutput(outputBuffer, srcElement) {
     });
   }
   console.log('output: ', outputBuffer);
-  outputCanvas.width = srcElement.naturalWidth | srcElement.videoWidth;
-  outputCanvas.height = srcElement.naturalHeight | srcElement.videoHeight;
+  outputCanvas.width = srcElement.naturalWidth | srcElement.width;
+  outputCanvas.height = srcElement.naturalHeight | srcElement.height;
   const pipeline = buildWebGL2Pipeline(
     srcElement,
     backgroundImageSource,
@@ -278,7 +285,7 @@ export async function main() {
     } else if (inputType === 'camera') {
       await getMediaStream();
       camElement.srcObject = stream;
-      camElement.onloadedmediadata = await renderCamStream();
+      camElement.onloadeddata = await renderCamStream();
       await showProgressComponent('done', 'done', 'done');
       readyShowResultComponents();
     } else {
