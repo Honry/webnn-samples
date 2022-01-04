@@ -39,8 +39,7 @@ export class SelfieSegmentation {
   const modelRunnerResult =
       module.TFLiteWebModelRunner.CreateFromBufferAndOptions(
           offset, modelBytes.length, {
-            numThreads: Math.min(
-                4, Math.max(1, (navigator.hardwareConcurrency || 1) / 2)),
+            numThreads: 1,
             enableWebNNDelegate: true,
             webNNDevicePreference: 2 // 0 - default, 1 - gpu, 2 - cpu
           });

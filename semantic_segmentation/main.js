@@ -1,25 +1,26 @@
 'use strict';
 
-import {DeepLabV3MNV2TFLite} from './deeplabv3_mnv2_tflite.js';
-import {DeepLabV3MNV2ONNX} from './deeplabv3_mnv2_onnx.js';
-import {SelfieSegmentation} from './seflie_segmentation_tflite.js';
-import {DeepLabV3MNV2Nchw} from './deeplabv3_mnv2_nchw.js';
-import {DeepLabV3MNV2Nhwc} from './deeplabv3_mnv2_nhwc.js';
-import {showProgressComponent, readyShowResultComponents} from '../common/ui.js';
-import {getVideoFrame, getInputTensor, getMedianValue, getDevicePreference, sizeOfShape} from '../common/utils.js';
-import {buildWebGL2Pipeline} from './lib/webgl2/webgl2Pipeline.js';
+import { DeepLabV3MNV2TFLite } from './deeplabv3_mnv2_tflite.js';
+import { DeepLabV3MNV2ONNX } from './deeplabv3_mnv2_onnx.js';
+import { SelfieSegmentation } from './seflie_segmentation_tflite.js';
+import { DeepLabV3MNV2Nchw } from './deeplabv3_mnv2_nchw.js';
+import { DeepLabV3MNV2Nhwc } from './deeplabv3_mnv2_nhwc.js';
+import { showProgressComponent, readyShowResultComponents } from '../common/ui.js';
+import { getVideoFrame, getInputTensor, getMedianValue, getDevicePreference, sizeOfShape } from '../common/utils.js';
+import { buildWebGL2Pipeline } from './lib/webgl2/webgl2Pipeline.js';
 
 const imgElement = document.getElementById('feedElement');
 imgElement.src = './images/test.jpg';
 const camElement = document.getElementById('feedMediaElement');
 const outputCanvas = document.getElementById('outputCanvas');
 let instanceType = 'deeplabnchw';
-let rafReq;
 let isFirstTimeLoad = true;
 let inputType = 'image';
 let netInstance = null;
 let labels = null;
 let stream = null;
+// An AbortController used to stop the transform.
+let abortController = null;
 let loadTime = 0;
 let buildTime = 0;
 let computeTime = 0;
@@ -32,6 +33,22 @@ let backgroundType = 'img'; // 'none', 'blur', 'image'
 
 $(document).ready(() => {
   $('.icdisplay').hide();
+  // Global MediaStreamTrackProcessor, MediaStreamTrackGenerator, VideoFrame.
+  if (typeof MediaStreamTrackProcessor === 'undefined' ||
+    typeof MediaStreamTrackGenerator === 'undefined') {
+    alert(
+      'Your browser does not support the MediaStreamTrack API for ' +
+      'Insertable Streams of Media.');
+  }
+  try {
+    new MediaStreamTrackGenerator('video');
+    console.log('Video insertable streams supported.');
+  } catch (e) {
+    alert('Your browser does not support insertable video streams.');
+  }
+  if (typeof VideoFrame === 'undefined') {
+    alert('Your browser does not support WebCodecs.');
+  }
 });
 
 $(window).on('load', () => {
@@ -40,16 +57,13 @@ $(window).on('load', () => {
 $('#modelBtns .btn').on('change', async (e) => {
   modelChanged = true;
   instanceType = $(e.target).attr('id');
-  if (inputType === 'camera') cancelAnimationFrame(rafReq);
+  if (inputType === 'camera') stopCamera();
   await main();
 });
 
 // Click trigger to do inference with <img> element
 $('#img').click(async () => {
-  if (inputType === 'camera') cancelAnimationFrame(rafReq);
-  if (stream !== null) {
-    stopCamera();
-  }
+  if (inputType === 'camera' || stream !== null) stopCamera();
   inputType = 'image';
   $('#pickimage').show();
   $('.shoulddisplay').hide();
@@ -65,11 +79,6 @@ $('#imageFile').change((e) => {
   }
 });
 
-$('#feedElement').on('load', async () => {
-  if (!isFirstTimeLoad) {
-    await main();
-  }
-});
 
 // Click trigger to do inference with <video> media element
 $('#cam').click(async () => {
@@ -102,44 +111,78 @@ async function fetchLabels(url) {
 
 async function getMediaStream() {
   // Support 'user' facing mode at present
-  const constraints = {audio: false, video: {facingMode: 'user'}};
+  const constraints = { audio: false, video: { facingMode: 'user' } };
   stream = await navigator.mediaDevices.getUserMedia(constraints);
 }
 
 function stopCamera() {
+  camElement.pause();
+  camElement.srcObject = null;
   stream.getTracks().forEach((track) => {
     if (track.readyState === 'live' && track.kind === 'video') {
       track.stop();
     }
   });
+  abortController.abort();
+  abortController = null;
 }
 
+function segmentSemantic() {
+  return async (videoFrame, controller) => {
+    const inputBuffer = getInputTensor(videoFrame, inputOptions);
+    console.log('- Computing... ');
+    const start = performance.now();
+    if (instanceType === 'deeplabnchw' || instanceType === 'deeplabnhwc') {
+      netInstance.compute(inputBuffer, outputBuffer);
+    } else if (instanceType === 'deeplabonnx') {
+      outputBuffer = await netInstance.compute(model, inputBuffer);
+    } else {
+      outputBuffer = netInstance.compute(model, inputBuffer);
+    }
+    computeTime = (performance.now() - start).toFixed(2);
+    console.log(`  done in ${computeTime} ms.`);
+    showPerfResult();
+    await drawOutput(outputBuffer, videoFrame);
+    let frame_from_canvas = new VideoFrame(outputCanvas, { timestamp: 0 });
+    // const barcodes = await detectBarcodes(videoFrame);
+    // const newFrame = highlightBarcodes(videoFrame, barcodes);
+    // videoFrame.close();
+    controller.enqueue(frame_from_canvas);
+  };
+}
 /**
  * This method is used to render live camera tab.
  */
 async function renderCamStream() {
-  // If the video element's readyState is 0, the video's width and height are 0.
-  // So check the readState here to make sure it is greater than 0.
-  if(camElement.readyState === 0) {
-    rafReq = requestAnimationFrame(renderCamStream);
-    return;
-  }
-  const inputBuffer = getInputTensor(camElement, inputOptions);
-  const inputCanvas = getVideoFrame(camElement);
-  console.log('- Computing... ');
-  const start = performance.now();
-  if (instanceType === 'deeplabnchw' || instanceType === 'deeplabnhwc') {
-    netInstance.compute(inputBuffer, outputBuffer);
-  } else if (instanceType === 'deeplabonnx') {
-    outputBuffer = await netInstance.compute(model, inputBuffer);
-  } else {
-    outputBuffer = netInstance.compute(model, inputBuffer);
-  }
-  computeTime = (performance.now() - start).toFixed(2);
-  console.log(`  done in ${computeTime} ms.`);
-  showPerfResult();
-  await drawOutput(outputBuffer, inputCanvas);
-  rafReq = requestAnimationFrame(renderCamStream);
+  await getMediaStream();
+  const videoTrack = stream.getVideoTracks()[0];
+
+  const processor = new MediaStreamTrackProcessor({ track: videoTrack });
+  const generator = new MediaStreamTrackGenerator({ kind: 'video' });
+
+  const source = processor.readable;
+  const sink = generator.writable;
+
+  const transformer = new TransformStream({ transform: segmentSemantic() });
+  abortController = new AbortController();
+  const signal = abortController.signal;
+
+  const popeThroughPromise = source.pipeThrough(transformer, { signal }).pipeTo(sink);
+
+  popeThroughPromise.catch((e) => {
+    if (signal.aborted) {
+      console.log('Shutting down streams after abort.');
+    } else {
+      console.error('Error from stream transform:', e);
+    }
+    source.cancel(e);
+    sink.abort(e);
+  });
+
+  const processedStream = new MediaStream();
+  processedStream.addTrack(generator);
+  camElement.srcObject = processedStream;
+  await camElement.play();
 }
 
 async function drawOutput(outputBuffer, srcElement) {
@@ -157,8 +200,8 @@ async function drawOutput(outputBuffer, srcElement) {
     });
   }
   console.log('output: ', outputBuffer);
-  outputCanvas.width = srcElement.naturalWidth | srcElement.width;
-  outputCanvas.height = srcElement.naturalHeight | srcElement.height;
+  outputCanvas.width = srcElement.naturalWidth | srcElement.displayWidth;
+  outputCanvas.height = srcElement.naturalHeight | srcElement.displayHeight;
   const pipeline = buildWebGL2Pipeline(
     srcElement,
     backgroundImageSource,
@@ -169,7 +212,7 @@ async function drawOutput(outputBuffer, srcElement) {
   );
   const postProcessingConfig = {
     smoothSegmentationMask: true,
-    jointBilateralFilter: {sigmaSpace: 1, sigmaColor: 0.1},
+    jointBilateralFilter: { sigmaSpace: 1, sigmaColor: 0.1 },
     coverage: [0.5, 0.75],
     lightWrapping: 0.3,
     blendMode: 'screen',
@@ -221,7 +264,7 @@ export async function main() {
 
     if (numRuns < 1) {
       addWarning('The value of param numRuns must be greater than or equal' +
-          ' to 1.');
+        ' to 1.');
       return;
     }
     // Only do load() and build() when model first time loads and
@@ -269,7 +312,7 @@ export async function main() {
           outputBuffer = netInstance.compute(model, inputBuffer);
         }
         computeTime = (performance.now() - start).toFixed(2);
-        console.log(`  compute time ${i+1}: ${computeTime} ms`);
+        console.log(`  compute time ${i + 1}: ${computeTime} ms`);
         computeTimeArray.push(Number(computeTime));
       }
       if (numRuns > 1) {
@@ -283,9 +326,7 @@ export async function main() {
       await drawOutput(outputBuffer, imgElement);
       showPerfResult(medianComputeTime);
     } else if (inputType === 'camera') {
-      await getMediaStream();
-      camElement.srcObject = stream;
-      camElement.onloadeddata = await renderCamStream();
+      await renderCamStream();
       await showProgressComponent('done', 'done', 'done');
       readyShowResultComponents();
     } else {

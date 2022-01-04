@@ -134,7 +134,7 @@
     </div>
   </div>
   <img id='feedElement' hidden crossorigin='anonymous' src=''>
-  <video id='feedMediaElement' autoplay playsinline hidden></video>
+  <video id='feedMediaElement' autoplay playsinline></video>
   <script>
     // This workaround is to fix jquery loading issue in electron.
     // Refer to https://stackoverflow.com/questions/32621988/electron-jquery-is-not-defined.
@@ -153,7 +153,7 @@
     integrity="sha384-B4gt1jrGC7Jh4AgTPSdUtOBvfO8shuf57BaghqFfPlYxofvL8/KUEfYiJOMMV+rV"
     crossorigin="anonymous"></script>
   <script src="https://webmachinelearning.github.io/webnn-polyfill/dist/webnn-polyfill.js" crossorigin="anonymous"></script>
-  <script src="./tflite-support/tflite_model_runner_cc_threaded_simd.js"></script>
+  <script src="./tflite-support/tflite_model_runner_cc.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.9.0/dist/tf.min.js"
     integrity="sha256-28ZvjeNGrGNEIj9/2D8YAPE6Vm5JSvvDs+LI4ED31x8="
     crossorigin="anonymous"></script>
@@ -167,7 +167,7 @@
     import {setPolyfillBackend} from '../common/utils.js';
 
     window.onload = async () => {
-      await setPolyfillBackend();
+      await setPolyfillBackend('gpu');
     }
   </script>
 </body>
