@@ -95,9 +95,9 @@ export function getInputTensor(inputElement, inputOptions) {
       inputDimensions.slice(1).reduce((a, b) => a * b));
 
   inputElement.width = inputElement.videoWidth ||
-      inputElement.naturalWidth;
+      inputElement.naturalWidth || inputElement.displayWidth;
   inputElement.height = inputElement.videoHeight ||
-      inputElement.naturalHeight;
+      inputElement.naturalHeight || inputElement.displayHeight;
 
   let [channels, height, width] = inputDimensions.slice(1);
   const mean = inputOptions.mean || [0, 0, 0, 0];

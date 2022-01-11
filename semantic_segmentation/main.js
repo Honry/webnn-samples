@@ -13,7 +13,6 @@ const outputCanvas = document.getElementById('outputCanvas');
 let modelName ='deeplabv3mnv2';
 let layout = 'nchw';
 let instanceType = modelName + layout;
-let rafReq;
 let isFirstTimeLoad = true;
 let inputType = 'image';
 let netInstance = null;
@@ -29,9 +28,27 @@ let hoverPos = null;
 let devicePreference = 'gpu';
 let lastDevicePreference = '';
 const disabledSelectors = ['#tabs > li', '.btn'];
+// An AbortController used to stop the transform.
+let abortController = null;
 
 $(document).ready(() => {
   $('.icdisplay').hide();
+  // Global MediaStreamTrackProcessor, MediaStreamTrackGenerator, VideoFrame.
+  if (typeof MediaStreamTrackProcessor === 'undefined' ||
+    typeof MediaStreamTrackGenerator === 'undefined') {
+    ui.addAlert(
+      'Your browser does not support the MediaStreamTrack API for ' +
+      'Insertable Streams of Media.');
+  }
+  try {
+    new MediaStreamTrackGenerator('video');
+    console.log('Video insertable streams supported.');
+  } catch (e) {
+    ui.addAlert('Your browser does not support insertable video streams.');
+  }
+  if (typeof VideoFrame === 'undefined') {
+    ui.addAlert('Your browser does not support WebCodecs.');
+  }
 });
 
 $(window).on('load', () => {
@@ -42,26 +59,25 @@ $(window).on('load', () => {
 
 $('#deviceBtns .btn').on('change', async (e) => {
   devicePreference = $(e.target).attr('id');
-  if (inputType === 'camera') cancelAnimationFrame(rafReq);
+  if (inputType === 'camera') stopCamera();
   await main();
 });
 
 $('#modelBtns .btn').on('change', async (e) => {
   modelName = $(e.target).attr('id');
-  if (inputType === 'camera') cancelAnimationFrame(rafReq);
+  if (inputType === 'camera') stopCamera();
   await main();
 });
 
 $('#layoutBtns .btn').on('change', async (e) => {
   layout = $(e.target).attr('id');
-  if (inputType === 'camera') cancelAnimationFrame(rafReq);
+  if (inputType === 'camera') stopCamera();
   await main();
 });
 
 // Click trigger to do inference with <img> element
 $('#img').click(async () => {
-  if (inputType === 'camera') cancelAnimationFrame(rafReq);
-  if (stream !== null) stopCamera();
+  if (inputType === 'camera' || stream !== null) stopCamera();
   inputType = 'image';
   $('#pickimage').show();
   $('.shoulddisplay').hide();
@@ -213,34 +229,68 @@ async function getMediaStream() {
 }
 
 function stopCamera() {
+  camElement.pause();
+  camElement.srcObject = null;
   stream.getTracks().forEach((track) => {
     if (track.readyState === 'live' && track.kind === 'video') {
       track.stop();
     }
   });
+  abortController.abort();
+  abortController = null;
+}
+
+function segmentSemantic() {
+  return async (videoFrame, controller) => {
+    const inputBuffer = utils.getInputTensor(videoFrame, inputOptions);
+    console.log('- Computing... ');
+    const start = performance.now();
+    netInstance.compute(inputBuffer, outputBuffer);
+    computeTime = (performance.now() - start).toFixed(2);
+    console.log(`  done in ${computeTime} ms.`);
+    showPerfResult();
+    await drawOutput(videoFrame);
+    $('#fps').text(`${(1000/computeTime).toFixed(0)} FPS`);
+
+    const frame_from_canvas = new VideoFrame(outputCanvas, {timestamp: 0});
+    videoFrame.close();
+    controller.enqueue(frame_from_canvas);
+  };
 }
 
 /**
  * This method is used to render live camera tab.
  */
 async function renderCamStream() {
-  // If the video element's readyState is 0, the video's width and height are 0.
-  // So check the readState here to make sure it is greater than 0.
-  if (camElement.readyState === 0) {
-    rafReq = requestAnimationFrame(renderCamStream);
-    return;
-  }
-  const inputBuffer = utils.getInputTensor(camElement, inputOptions);
-  const inputCanvas = utils.getVideoFrame(camElement);
-  console.log('- Computing... ');
-  const start = performance.now();
-  netInstance.compute(inputBuffer, outputBuffer);
-  computeTime = (performance.now() - start).toFixed(2);
-  console.log(`  done in ${computeTime} ms.`);
-  showPerfResult();
-  await drawOutput(inputCanvas);
-  $('#fps').text(`${(1000/computeTime).toFixed(0)} FPS`);
-  rafReq = requestAnimationFrame(renderCamStream);
+  await getMediaStream();
+  const videoTrack = stream.getVideoTracks()[0];
+
+  const processor = new MediaStreamTrackProcessor({track: videoTrack});
+  const generator = new MediaStreamTrackGenerator({kind: 'video'});
+
+  const source = processor.readable;
+  const sink = generator.writable;
+
+  const transformer = new TransformStream({transform: segmentSemantic()});
+  abortController = new AbortController();
+  const signal = abortController.signal;
+
+  const popeThroughPromise = source.pipeThrough(transformer, {signal}).pipeTo(sink);
+
+  popeThroughPromise.catch((e) => {
+    if (signal.aborted) {
+      console.log('Shutting down streams after abort.');
+    } else {
+      console.error('Error from stream transform:', e);
+    }
+    source.cancel(e);
+    sink.abort(e);
+  });
+
+  const processedStream = new MediaStream();
+  processedStream.addTrack(generator);
+  camElement.srcObject = processedStream;
+  await camElement.play();
 }
 
 async function drawOutput(srcElement) {
@@ -257,8 +307,8 @@ async function drawOutput(srcElement) {
   });
 
   const width = inputOptions.inputDimensions[2];
-  const imWidth = srcElement.naturalWidth | srcElement.width;
-  const imHeight = srcElement.naturalHeight | srcElement.height;
+  const imWidth = srcElement.naturalWidth || srcElement.displayWidth;
+  const imHeight = srcElement.naturalHeight || srcElement.displayHeight;
   const resizeRatio = Math.max(Math.max(imWidth, imHeight) / width, 1);
   const scaledWidth = Math.floor(imWidth / resizeRatio);
   const scaledHeight = Math.floor(imHeight / resizeRatio);
@@ -348,6 +398,8 @@ export async function main() {
     // UI shows inferencing progress
     await ui.showProgressComponent('done', 'done', 'current');
     if (inputType === 'image') {
+      $('#outputCanvas').show();
+      $('#feedMediaElement').hide();
       const inputBuffer = utils.getInputTensor(imgElement, inputOptions);
       console.log('- Computing... ');
       const computeTimeArray = [];
@@ -375,9 +427,9 @@ export async function main() {
       await drawOutput(imgElement);
       showPerfResult(medianComputeTime);
     } else if (inputType === 'camera') {
-      await getMediaStream();
-      camElement.srcObject = stream;
-      camElement.onloadeddata = await renderCamStream();
+      $('#outputCanvas').hide();
+      $('#feedMediaElement').show();
+      await renderCamStream();
       await ui.showProgressComponent('done', 'done', 'done');
       $('#fps').show();
       ui.readyShowResultComponents();
