@@ -1,19 +1,24 @@
 MODEL_PATH = 'model.tflite';
 
 async function load() {
+  const numThreads = parseInt(document.getElementById('numThreads').value);
+  document.getElementById('predict').hidden = true;
+  document.querySelector('.result').innerHTML = "";
   const startTs = Date.now();
   const tfliteModel = await tflite.loadTFLiteModel(MODEL_PATH, {
-    numThreads: parseInt(document.getElementById('numThreads').value),
+    numThreads: numThreads,
   });
   const loadFinishedMs = Date.now() - startTs;
   document.querySelector('.loading-stats').textContent =
-    `Loaded WASM module and TFLite model ${MODEL_PATH} in ${loadFinishedMs}ms`;
-  document.querySelector('.hide').classList.remove('hide');
+    `Loaded WASM module and TFLite model ${MODEL_PATH} with ${numThreads} threads in ${loadFinishedMs}ms`;
+    document.getElementById('predict').hidden = false;
   return tfliteModel;
 }
 
 let tfliteModel;
-window.onload = async function () {
+const loadElem = document.getElementById('loadModel');
+loadElem.onclick = async function () {
+  document.querySelector('.loading-stats').textContent = "Loading...";
   tfliteModel = await load();
 }
 
