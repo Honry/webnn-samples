@@ -11,7 +11,7 @@ async function load() {
   const loadFinishedMs = Date.now() - startTs;
   document.querySelector('.loading-stats').textContent =
     `Loaded WASM module and TFLite model ${MODEL_PATH} with ${numThreads} threads in ${loadFinishedMs}ms`;
-    document.getElementById('predict').hidden = false;
+  document.getElementById('predict').hidden = false;
   return tfliteModel;
 }
 

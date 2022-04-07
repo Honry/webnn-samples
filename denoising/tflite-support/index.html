@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <meta charset="utf-8">
-<title>TFLite Web API Model Runner Denosing Demo</title>
+<title>TFLite Web API (tflite-support) Model Runner Denosing Demo</title>
 
 <head>
   <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Google+Sans:400,500,700">
@@ -16,16 +16,6 @@
       margin-top: 0;
     }
 
-    .loading-stats {
-      color: #aaa;
-      font-size: 12px;
-      margin-top: -12px;
-    }
-
-    .hide {
-      display: none;
-    }
-
     .content {
       margin-top: 30px;
     }
@@ -33,21 +23,22 @@
 </head>
 
 <body>
-  <h1>TFLite Web API Model Denosing Runner Demo</h1>
-
+  <h1>TFLite Web API (tflite-support) Model Denosing Runner Demo</h1>
+    Threads Number: <input type="number" id="numThreads" value="1" min="1" defaultValue="1"/>
+    <input onclick="load()" id='loadModel' type="button" value="Load Model" />
+  <br/>
   <!-- Loading status -->
-  <div class="loading-stats">Loading...</div>
-  <div class="hide">
+  <div class="loading-stats"></div>
+  <div id="predict" hidden>
     <div class="content">
       Run Number: <input type="number" id="numRuns" value="1" min="1" defaultValue="1"/>
-      <input type="button" onclick="start()" value="Predict" />
+      <input onclick="start()" type="button" value="Predict" />
     </div>
     <div class="content">
       <div class="result"></div>
     </div>
   </div>
   <script src="./tflite_model_runner_cc_threaded_simd.js"></script>
-  <script src="https://webmachinelearning.github.io/webnn-polyfill/dist/webnn-polyfill.js" crossorigin="anonymous"></script>
   <script src="./script.js"></script>
 </body>
 </html>

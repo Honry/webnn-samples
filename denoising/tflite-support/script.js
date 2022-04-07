@@ -3,7 +3,9 @@ MODEL_PATH = 'model.tflite';
 async function load() {
   //////////////////////////////////////////////////////////////////////////////
   // Create the model runner with the model.
-
+  const numThreads = parseInt(document.getElementById('numThreads').value);
+  document.getElementById('predict').hidden = true;
+  document.querySelector('.result').innerHTML = "";
   const startTs = Date.now();
 
   // Load WASM module and model.
@@ -19,8 +21,7 @@ async function load() {
   const modelRunnerResult =
     module.TFLiteWebModelRunner.CreateFromBufferAndOptions(
       offset, modelBytes.length, {
-      numThreads: Math.min(
-        4, Math.max(1, (navigator.hardwareConcurrency || 1) / 2)),
+      numThreads: numThreads,
       enableWebNNDelegate: false,
       webNNDevicePreference: 0 // 0 - default, 1 - gpu, 2 - cpu
     });
@@ -31,14 +32,16 @@ async function load() {
   const modelRunner = modelRunnerResult.value();
   const loadFinishedMs = Date.now() - startTs;
   document.querySelector('.loading-stats').textContent =
-    `Loaded WASM module and TFLite model ${MODEL_PATH} in ${loadFinishedMs}ms`;
-  document.querySelector('.hide').classList.remove('hide');
+  `Loaded WASM module and TFLite model ${MODEL_PATH} with ${numThreads} threads in ${loadFinishedMs}ms`;
+  document.getElementById('predict').hidden = false;
   return modelRunner;
 
 }
 
 let modelRunner;
-window.onload = async function () {
+const loadElem = document.getElementById('loadModel');
+loadElem.onclick = async function () {
+  document.querySelector('.loading-stats').textContent = "Loading...";
   modelRunner = await load();
 }
 
