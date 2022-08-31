@@ -118,11 +118,11 @@ export function getInputTensor(inputElement, inputOptions) {
   const mean = inputOptions.mean || [0, 0, 0, 0];
   const std = inputOptions.std || [1, 1, 1, 1];
   const normlizationFlag = inputOptions.norm || false;
+  const channelScheme = inputOptions.channelScheme || 'RGB';
   const scaledFlag = inputOptions.scaledFlag || false;
   const inputLayout = inputOptions.inputLayout;
   const imageChannels = 4; // RGBA
   const drawOptions = inputOptions.drawOptions;
-
   if (inputLayout === 'nhwc') {
     [height, width, channels] = inputDimensions.slice(1);
   }
@@ -156,8 +156,13 @@ export function getInputTensor(inputElement, inputOptions) {
   for (let c = 0; c < channels; ++c) {
     for (let h = 0; h < height; ++h) {
       for (let w = 0; w < width; ++w) {
-        const value =
-            pixels[h * width * imageChannels + w * imageChannels + c];
+        let value;
+        if (channelScheme === 'BGR') {
+          value = pixels[h * width * imageChannels + w * imageChannels +
+              (channels - c - 1)];
+        } else {
+          value = pixels[h * width * imageChannels + w * imageChannels + c];
+        }
         if (inputLayout === 'nchw') {
           tensor[c * width * height + h * width + w] =
               (value - mean[c]) / std[c];
@@ -194,11 +199,23 @@ export async function setPolyfillBackend(device) {
       throw new Error(`Failed to set tf.js backend ${backend}.`);
     }
     await tf.ready();
+    let backendInfo = backend == 'wasm' ? 'WASM' : 'WebGL';
+    if (backendInfo == 'WASM') {
+      const hasSimd = tf.env().features['WASM_HAS_SIMD_SUPPORT'];
+      const hasThreads = tf.env().features['WASM_HAS_MULTITHREAD_SUPPORT'];
+      if (hasThreads && hasSimd) {
+        backendInfo += ' (SIMD + threads)';
+      } else if (hasThreads && !hasSimd) {
+        backendInfo += ' (threads)';
+      } else if (!hasThreads && hasSimd) {
+        backendInfo += ' (SIMD)';
+      }
+    }
     addAlert(
         `This sample is running on ` +
         `<a href='https://github.com/webmachinelearning/webnn-polyfill'>` +
         `WebNN-polyfill</a> with tf.js ${tf.version_core} ` +
-        `<b>${tf.getBackend()}</b> backend.`, 'info');
+        `<b>${backendInfo}</b> backend.`, 'info');
   }
 }
 
