@@ -31,17 +31,17 @@
           </div>
           <div class="col-md-auto">
             <div class="btn-group-toggle" data-toggle="buttons" id="backendBtns">
-              <label class="btn btn-outline-info custom" name="polyfill">
+              <!-- <label class="btn btn-outline-info custom" name="polyfill">
                 <input type="radio" name="backend" id="polyfill_cpu" autocomplete="off">Wasm (CPU)
               </label>
               <label class="btn btn-outline-info custom" name="polyfill">
                 <input type="radio" name="backend" id="polyfill_gpu" autocomplete="off">WebGL (GPU)
-              </label>
+              </label> -->
               <label class="btn btn-outline-info custom" name="webnn">
                 <input type="radio" name="backend" id="webnn_cpu" autocomplete="off">WebNN (CPU)
               </label>
               <label class="btn btn-outline-info custom" name="webnn">
-                <input type="radio" name="backend" id="webnn_gpu" autocomplete="off">WebNN (GPU)
+                <input type="radio" name="backend" id="webnn_gpu" autocomplete="off" checked>WebNN (GPU)
               </label>
             </div>
           </div>
@@ -55,9 +55,9 @@
               <label class="btn btn-outline-info active" id='nchw-label'>
                 <input type="radio" name="layout" id="nchw" autocomplete="off" checked>NCHW
               </label>
-              <label class="btn btn-outline-info btn-sm">
+              <!-- <label class="btn btn-outline-info btn-sm">
                 <input type="radio" name="layout" id="nhwc" autocomplete="off">NHWC
-              </label>
+              </label> -->
             </div>
           </div>
         </div>
@@ -67,7 +67,13 @@
           </div>
           <div class="col-md-auto">
             <div class="btn-group-toggle" data-toggle="buttons" id="modelBtns">
-              <label class="btn btn-outline-info active">
+              <label class="btn btn-outline-info">
+                <input type="radio" name="model" id="mobilenetv27fp32" autocomplete="off">MobileNet V2 7 FP32
+              </label>
+              <label class="btn btn-outline-info">
+                <input type="radio" name="model" id="mobilenetv27fp16" autocomplete="off">MobileNet V2 7 FP16
+              </label>
+              <!-- <label class="btn btn-outline-info">
                 <input type="radio" name="model" id="mobilenet" autocomplete="off">MobileNet V2
               </label>
               <label class="btn btn-outline-info">
@@ -75,7 +81,7 @@
               </label>
               <label class="btn btn-outline-info">
                 <input type="radio" name="model" id="resnet50" autocomplete="off">ResNet V2 50
-              </label>
+              </label> -->
             </div>
           </div>
         </div>

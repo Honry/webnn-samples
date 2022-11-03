@@ -8,6 +8,7 @@ import {ResNet50V2Nchw} from './resnet50v2_nchw.js';
 import {ResNet50V2Nhwc} from './resnet50v2_nhwc.js';
 import * as ui from '../common/ui.js';
 import * as utils from '../common/utils.js';
+import { MobileNetV27Nchw } from './mobilenetv2_7_nchw.js';
 
 const maxWidth = 380;
 const maxHeight = 380;
@@ -43,7 +44,7 @@ async function fetchLabels(url) {
 $(document).ready(() => {
   $('.icdisplay').hide();
   if (utils.isWebNN()) {
-    $('#webnn_cpu').click();
+    $('#webnn_gpu').click();
   } else {
     $('#polyfill_gpu').click();
   }
@@ -123,7 +124,7 @@ async function renderCamStream() {
   const inputCanvas = utils.getVideoFrame(camElement);
   console.log('- Computing... ');
   const start = performance.now();
-  netInstance.compute(inputBuffer, outputBuffer);
+  await netInstance.compute(inputBuffer, outputBuffer);
   computeTime = (performance.now() - start).toFixed(2);
   console.log(`  done in ${computeTime} ms.`);
   drawInput(inputCanvas, 'camInCanvas');
@@ -147,7 +148,10 @@ function getTopClasses(buffer, labels) {
   const classes = [];
 
   for (let i = 0; i < 3; ++i) {
-    const prob = sorted[i][0];
+    let prob = sorted[i][0];
+    if (inputOptions.dataType === 'float16') {
+      prob = utils.float16ToNumber(prob);
+    }
     const index = sorted[i][1];
     const c = {
       label: labels[index],
@@ -197,6 +201,8 @@ function showPerfResult(medianComputeTime = undefined) {
 
 function constructNetObject(type) {
   const netObject = {
+    'mobilenetv27fp32nchw': new MobileNetV27Nchw('float32'),
+    'mobilenetv27fp16nchw': new MobileNetV27Nchw('float16'),
     'mobilenetnchw': new MobileNetV2Nchw(),
     'mobilenetnhwc': new MobileNetV2Nhwc(),
     'squeezenetnchw': new SqueezeNetNchw(),
@@ -237,14 +243,20 @@ async function main() {
       netInstance = constructNetObject(instanceType);
       inputOptions = netInstance.inputOptions;
       labels = await fetchLabels(inputOptions.labelUrl);
-      outputBuffer =
-          new Float32Array(utils.sizeOfShape(netInstance.outputDimensions));
+      if (inputOptions.dataType === 'float16') {
+        outputBuffer =
+            new Uint16Array(utils.sizeOfShape(netInstance.outputDimensions));  
+      } else {
+        outputBuffer =
+            new Float32Array(utils.sizeOfShape(netInstance.outputDimensions));
+      }
+
       isFirstTimeLoad = false;
       console.log(`- Model name: ${modelName}, Model layout: ${layout} -`);
       // UI shows model loading progress
       await ui.showProgressComponent('current', 'pending', 'pending');
       console.log('- Loading weights... ');
-      const contextOptions = {devicePreference};
+      const contextOptions = {type: 'webnn', devicePreference: devicePreference};
       if (powerPreference) {
         contextOptions['powerPreference'] = powerPreference;
       }
@@ -256,7 +268,7 @@ async function main() {
       await ui.showProgressComponent('done', 'current', 'pending');
       console.log('- Building... ');
       start = performance.now();
-      netInstance.build(outputOperand);
+      await netInstance.build(outputOperand);
       buildTime = (performance.now() - start).toFixed(2);
       console.log(`  done in ${buildTime} ms.`);
     }
@@ -269,11 +281,11 @@ async function main() {
       let medianComputeTime;
 
       // Do warm up
-      netInstance.compute(inputBuffer, outputBuffer);
+      await netInstance.compute(inputBuffer, outputBuffer);
 
       for (let i = 0; i < numRuns; i++) {
         start = performance.now();
-        netInstance.compute(inputBuffer, outputBuffer);
+        await netInstance.compute(inputBuffer, outputBuffer);
         computeTime = (performance.now() - start).toFixed(2);
         console.log(`  compute time ${i+1}: ${computeTime} ms`);
         computeTimeArray.push(Number(computeTime));
