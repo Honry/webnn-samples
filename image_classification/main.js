@@ -1,13 +1,15 @@
 'use strict';
 
-import {MobileNetV2Nchw} from './mobilenet_nchw.js';
-import {MobileNetV2Nhwc} from './mobilenet_nhwc.js';
-import {SqueezeNetNchw} from './squeezenet_nchw.js';
-import {SqueezeNetNhwc} from './squeezenet_nhwc.js';
-import {ResNet50V2Nchw} from './resnet50v2_nchw.js';
-import {ResNet50V2Nhwc} from './resnet50v2_nhwc.js';
+// import {MobileNetV2Nchw} from './mobilenet_nchw.js';
+// import {MobileNetV2Nhwc} from './mobilenet_nhwc.js';
+// import {SqueezeNetNchw} from './squeezenet_nchw.js';
+// import {SqueezeNetNhwc} from './squeezenet_nhwc.js';
+// import {ResNet50V2Nchw} from './resnet50v2_nchw.js';
+// import {ResNet50V2Nhwc} from './resnet50v2_nhwc.js';
 import * as ui from '../common/ui.js';
 import * as utils from '../common/utils.js';
+
+const worker = new Worker('./worker.js');
 
 const maxWidth = 380;
 const maxHeight = 380;
@@ -15,7 +17,7 @@ const imgElement = document.getElementById('feedElement');
 imgElement.src = './images/test.jpg';
 const camElement = document.getElementById('feedMediaElement');
 let modelName = '';
-let layout = 'nchw';
+let layout = 'nhwc';
 let instanceType = modelName + layout;
 let rafReq;
 let isFirstTimeLoad = true;
@@ -26,7 +28,13 @@ let stream = null;
 let loadTime = 0;
 let buildTime = 0;
 let computeTime = 0;
-let inputOptions;
+const inputOptions = {
+  mean: [127.5, 127.5, 127.5],
+  std: [127.5, 127.5, 127.5],
+  inputLayout: 'nhwc',
+  labelUrl: './labels/labels1001.txt',
+  inputDimensions: [1, 224, 224, 3],
+};
 let outputBuffer;
 let deviceType = '';
 let lastdeviceType = '';
@@ -108,9 +116,9 @@ async function renderCamStream() {
   const inputBuffer = utils.getInputTensor(camElement, inputOptions);
   const inputCanvas = utils.getVideoFrame(camElement);
   console.log('- Computing... ');
-  const start = performance.now();
-  await netInstance.compute(inputBuffer, outputBuffer);
-  computeTime = (performance.now() - start).toFixed(2);
+  const result = await postAndListenMessage({action: 'compute', options:{inputType}, buffer: inputBuffer});
+  outputBuffer = result.outputBuffer;
+  computeTime = result.computeTime;
   console.log(`  done in ${computeTime} ms.`);
   drawInput(inputCanvas, 'camInCanvas');
   showPerfResult();
@@ -169,29 +177,32 @@ async function drawOutput(outputBuffer, labels) {
   });
 }
 
-function showPerfResult(medianComputeTime = undefined) {
+function showPerfResult() {
   $('#loadTime').html(`${loadTime} ms`);
   $('#buildTime').html(`${buildTime} ms`);
-  if (medianComputeTime !== undefined) {
+  if (utils.getUrlParams()[0] > 1) { // numRuns > 1
     $('#computeLabel').html('Median inference time:');
-    $('#computeTime').html(`${medianComputeTime} ms`);
+    
   } else {
     $('#computeLabel').html('Inference time:');
-    $('#computeTime').html(`${computeTime} ms`);
   }
+  $('#computeTime').html(`${computeTime} ms`);
 }
 
-function constructNetObject(type) {
-  const netObject = {
-    'mobilenetnchw': new MobileNetV2Nchw(),
-    'mobilenetnhwc': new MobileNetV2Nhwc(),
-    'squeezenetnchw': new SqueezeNetNchw(),
-    'squeezenetnhwc': new SqueezeNetNhwc(),
-    'resnet50nchw': new ResNet50V2Nchw(),
-    'resnet50nhwc': new ResNet50V2Nhwc(),
-  };
-
-  return netObject[type];
+async function postAndListenMessage(postedMessage) {
+  if (postedMessage.buffer) {
+    // transfer buffer rather than copy
+    worker.postMessage(postedMessage, [postedMessage.buffer.buffer]);
+  } else {
+    worker.postMessage(postedMessage);
+  }
+  
+  const result = await new Promise((resolve, reject) => {
+    worker.onmessage = (event) => {
+      resolve(event.data);
+    };
+  });
+  return result; 
 }
 
 async function main() {
@@ -215,16 +226,11 @@ async function main() {
                                deviceType : lastdeviceType;
         lastBackend = lastBackend != backend ? backend : lastBackend;
       }
-      if (netInstance !== null) {
-        // Call dispose() to and avoid memory leak
-        netInstance.dispose();
-      }
+
       instanceType = modelName + layout;
-      netInstance = constructNetObject(instanceType);
-      inputOptions = netInstance.inputOptions;
       labels = await fetchLabels(inputOptions.labelUrl);
       outputBuffer =
-          new Float32Array(utils.sizeOfShape(netInstance.outputDimensions));
+          new Float32Array(utils.sizeOfShape([1, 1001]));
       isFirstTimeLoad = false;
       console.log(`- Model name: ${modelName}, Model layout: ${layout} -`);
       // UI shows model loading progress
@@ -234,16 +240,13 @@ async function main() {
       if (powerPreference) {
         contextOptions['powerPreference'] = powerPreference;
       }
-      start = performance.now();
-      const outputOperand = await netInstance.load(contextOptions);
-      loadTime = (performance.now() - start).toFixed(2);
+  
+      loadTime = await postAndListenMessage({action: 'load', options: contextOptions});
       console.log(`  done in ${loadTime} ms.`);
       // UI shows model building progress
       await ui.showProgressComponent('done', 'current', 'pending');
       console.log('- Building... ');
-      start = performance.now();
-      await netInstance.build(outputOperand);
-      buildTime = (performance.now() - start).toFixed(2);
+      buildTime = await postAndListenMessage({action: 'build'});
       console.log(`  done in ${buildTime} ms.`);
     }
     // UI shows inferencing progress
@@ -251,30 +254,15 @@ async function main() {
     if (inputType === 'image') {
       const inputBuffer = utils.getInputTensor(imgElement, inputOptions);
       console.log('- Computing... ');
-      const computeTimeArray = [];
-      let medianComputeTime;
-
-      // Do warm up
-      await netInstance.compute(inputBuffer, outputBuffer);
-
-      for (let i = 0; i < numRuns; i++) {
-        start = performance.now();
-        await netInstance.compute(inputBuffer, outputBuffer);
-        computeTime = (performance.now() - start).toFixed(2);
-        console.log(`  compute time ${i+1}: ${computeTime} ms`);
-        computeTimeArray.push(Number(computeTime));
-      }
-      if (numRuns > 1) {
-        medianComputeTime = utils.getMedianValue(computeTimeArray);
-        medianComputeTime = medianComputeTime.toFixed(2);
-        console.log(`  median compute time: ${medianComputeTime} ms`);
-      }
+      const result = await postAndListenMessage({action: 'compute', options:{inputType, numRuns}, buffer: inputBuffer});
+      outputBuffer = result.outputBuffer;
+      computeTime = result.computeTime;
       console.log('outputBuffer: ', outputBuffer);
       await ui.showProgressComponent('done', 'done', 'done');
       ui.readyShowResultComponents();
       drawInput(imgElement, 'inputCanvas');
       await drawOutput(outputBuffer, labels);
-      showPerfResult(medianComputeTime);
+      showPerfResult();
     } else if (inputType === 'camera') {
       stream = await utils.getMediaStream();
       camElement.srcObject = stream;
