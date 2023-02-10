@@ -116,9 +116,10 @@ async function renderCamStream() {
   const inputBuffer = utils.getInputTensor(camElement, inputOptions);
   const inputCanvas = utils.getVideoFrame(camElement);
   console.log('- Computing... ');
+  const start = performance.now();
   const result = await postAndListenMessage({action: 'compute', options:{inputType}, buffer: inputBuffer});
   outputBuffer = result.outputBuffer;
-  computeTime = result.computeTime;
+  computeTime = (performance.now() - start).toFixed(2);
   console.log(`  done in ${computeTime} ms.`);
   drawInput(inputCanvas, 'camInCanvas');
   showPerfResult();
@@ -190,7 +191,7 @@ function showPerfResult() {
 }
 
 async function postAndListenMessage(postedMessage) {
-  if (postedMessage.buffer) {
+  if (postedMessage.action == 'compute') {
     // transfer buffer rather than copy
     worker.postMessage(postedMessage, [postedMessage.buffer.buffer]);
   } else {
@@ -254,9 +255,19 @@ async function main() {
     if (inputType === 'image') {
       const inputBuffer = utils.getInputTensor(imgElement, inputOptions);
       console.log('- Computing... ');
-      const result = await postAndListenMessage({action: 'compute', options:{inputType, numRuns}, buffer: inputBuffer});
+      console.log('- Warmup... ');
+      const result = await postAndListenMessage({action: 'compute', options:{inputType}, buffer: inputBuffer});
+      console.log('- Warmup done... ');
+      let computeTimeArray = [];
+      for (let i = 0; i < numRuns; i++) {
+        const inputBuffer = utils.getInputTensor(imgElement, inputOptions);
+        const start = performance.now();
+        await postAndListenMessage({action: 'compute', options:{inputType}, buffer: inputBuffer});
+        computeTimeArray.push(performance.now() - start);
+      }
+      computeTime = utils.getMedianValue(computeTimeArray);
+      computeTime = computeTime.toFixed(2);
       outputBuffer = result.outputBuffer;
-      computeTime = result.computeTime;
       console.log('outputBuffer: ', outputBuffer);
       await ui.showProgressComponent('done', 'done', 'done');
       ui.readyShowResultComponents();

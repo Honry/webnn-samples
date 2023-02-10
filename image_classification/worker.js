@@ -39,27 +39,12 @@ onmessage = async (message) => {
 
       case 'compute':
         const inputBuffer = message.data.buffer;
-        const inputType = message.data.options.inputType;
-        const numRuns = message.data.options.numRuns || 1;
         const outputBuffer = new Float32Array(sizeOfShape(netInstance.outputDimensions));
-        let computeTime, computeTimeArray = [];
-        if(inputType == 'image') {
-          // Do warm up
-          netInstance.compute(inputBuffer, outputBuffer);
-        }
-        for (let i = 0; i < numRuns; i++) {
-          const computeStart = performance.now();
-          netInstance.compute(inputBuffer, outputBuffer);
-          computeTime = (performance.now() - computeStart).toFixed(2);
-          console.log(`  compute time ${i + 1}: ${computeTime} ms`);
-          computeTimeArray.push(Number(computeTime));
-        }
-        if (numRuns > 1) {
-          computeTime = getMedianValue(computeTimeArray);
-          computeTime = computeTime.toFixed(2);
-          console.log(`  median compute time: ${computeTime} ms`);
-        }
-        postMessage({outputBuffer, computeTime}, [outputBuffer.buffer]);
+        const computeStart = performance.now();
+        netInstance.compute(inputBuffer, outputBuffer);
+        const computeTime = (performance.now() - computeStart).toFixed(2);
+        console.log(`  compute time inside worker: ${computeTime} ms`);
+        postMessage({outputBuffer}, [outputBuffer.buffer]);
         break;
 
       default:
