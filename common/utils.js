@@ -49,13 +49,9 @@ export async function buildConstantByNpy(builder, url) {
   const dimensions = npArray.shape;
   const type = dataTypeMap.get(npArray.dataType).type;
   const TypedArrayConstructor = dataTypeMap.get(npArray.dataType).array;
-  const typedArray = new TypedArrayConstructor(sizeOfShape(dimensions));
-  const dataView = new DataView(npArray.data.buffer);
-  const littleEndian = npArray.byteOrder === '<';
-  for (let i = 0; i < sizeOfShape(dimensions); ++i) {
-    typedArray[i] = dataView[`get` + type[0].toUpperCase() + type.substr(1)](
-        i * TypedArrayConstructor.BYTES_PER_ELEMENT, littleEndian);
-  }
+  const dataView = new Uint8Array(npArray.data.buffer);
+  const dataView2 = dataView.slice();
+  const typedArray = new TypedArrayConstructor(dataView2.buffer);
   return builder.constant({type, dimensions}, typedArray);
 }
 
@@ -266,7 +262,18 @@ export function getUrlParams() {
     powerPreference = null;
   }
 
-  return [numRuns, powerPreference];
+  // Get 'numThreads' param to set WebNN's 'numThreads' option
+  let numThreads = params.get('numThreads');
+  if (numThreads != null) {
+    numThreads = parseInt(numThreads);
+    if (!Number.isInteger(numThreads) || numThreads < 0) {
+      addAlert(`Ignore the url param: 'numThreads', its value must be ` +
+          `an integer and not less than 0.`);
+      numThreads = null;
+    }
+  }
+
+  return [numRuns, powerPreference, numThreads];
 }
 
 // Set backend for using WebNN-polyfill or WebNN
