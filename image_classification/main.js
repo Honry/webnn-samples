@@ -33,6 +33,8 @@ let lastdeviceType = '';
 let backend = '';
 let lastBackend = '';
 const disabledSelectors = ['#tabs > li', '.btn'];
+let fps = 0;
+let then;
 
 async function fetchLabels(url) {
   const response = await fetch(url);
@@ -105,18 +107,23 @@ async function renderCamStream() {
     rafReq = requestAnimationFrame(renderCamStream);
     return;
   }
-  const inputBuffer = utils.getInputTensor(camElement, inputOptions);
-  const inputCanvas = utils.getVideoFrame(camElement);
-  console.log('- Computing... ');
-  const start = performance.now();
-  const results = await netInstance.compute(inputBuffer, outputBuffer);
-  computeTime = (performance.now() - start).toFixed(2);
-  outputBuffer = results.outputs.output;
-  console.log(`  done in ${computeTime} ms.`);
-  drawInput(inputCanvas, 'camInCanvas');
-  showPerfResult();
-  await drawOutput(outputBuffer, labels);
-  $('#fps').text(`${(1000/computeTime).toFixed(0)} FPS`);
+  const now = Date.now();
+  let delta = now - then;
+  if (!fps || delta > 1000/fps) {
+    then = now - (delta % (1000/fps));
+    const inputBuffer = utils.getInputTensor(camElement, inputOptions);
+    const inputCanvas = utils.getVideoFrame(camElement);
+    console.log('- Computing... ');
+    const start = performance.now();
+    const results = await netInstance.compute(inputBuffer, outputBuffer);
+    computeTime = (performance.now() - start).toFixed(2);
+    outputBuffer = results.outputs.output;
+    console.log(`  done in ${computeTime} ms.`);
+    drawInput(inputCanvas, 'camInCanvas');
+    showPerfResult();
+    await drawOutput(outputBuffer, labels);
+    $('#fps').text(`${(1000/computeTime).toFixed(0)} FPS`);
+  }
   rafReq = requestAnimationFrame(renderCamStream);
 }
 
@@ -204,7 +211,7 @@ async function main() {
     if (isFirstTimeLoad) $('#hint').hide();
     let start;
     const [numRuns, powerPreference, numThreads] = utils.getUrlParams();
-
+    fps = utils.getUrlParams()[3];
     // Only do load() and build() when model first time loads,
     // there's new model choosed, backend changed or device changed
     if (isFirstTimeLoad || instanceType !== modelName + layout ||
@@ -284,6 +291,7 @@ async function main() {
     } else if (inputType === 'camera') {
       stream = await utils.getMediaStream();
       camElement.srcObject = stream;
+      then = Date.now();
       camElement.onloadeddata = await renderCamStream();
       await ui.showProgressComponent('done', 'done', 'done');
       ui.readyShowResultComponents();

@@ -20,6 +20,9 @@ let outputBuffer;
 let modelChanged = false;
 let backgroundImageSource = document.getElementById('00-img');
 let backgroundType = 'img'; // 'none', 'blur', 'image'
+let fps = 0;
+let then;
+
 const inputOptions = {
   mean: [127.5, 127.5, 127.5],
   std: [127.5, 127.5, 127.5],
@@ -121,7 +124,7 @@ $('#gallery .gallery-item').click(async (e) => {
 
 /**
  * This method is used to render live camera tab.
- */
+ */let computeCount = 0; let startTime;
 async function renderCamStream() {
   if (!stream.active) return;
   // If the video element's readyState is 0, the video's width and height are 0.
@@ -130,18 +133,30 @@ async function renderCamStream() {
     rafReq = requestAnimationFrame(renderCamStream);
     return;
   }
-  const inputCanvas = utils.getVideoFrame(camElement);
-  const inputBuffer = utils.getInputTensor(camElement, inputOptions);
-  console.log('- Computing... ');
-  const start = performance.now();
-  const result =
-      await postAndListenMessage({action: 'compute', buffer: inputBuffer});
-  computeTime = (performance.now() - start).toFixed(2);
-  outputBuffer = result.outputBuffer;
-  console.log(`  done in ${computeTime} ms.`);
-  showPerfResult();
-  await drawOutput(outputBuffer, inputCanvas);
-  $('#fps').text(`${(1000/computeTime).toFixed(0)} FPS`);
+  const now = Date.now();
+  let delta = now - then;
+  if (computeCount == 0) {
+    startTime = performance.now();
+  }
+  if (performance.now() - startTime > 1000) {
+    startTime = performance.now();console.log(`${computeCount} times in one second`);computeCount = 0;
+  }
+  if (!fps || delta > 1000/fps) {
+    then = now - (delta % (1000/fps));
+    const inputCanvas = utils.getVideoFrame(camElement);
+    const inputBuffer = utils.getInputTensor(camElement, inputOptions);
+    console.log('- Computing... ');
+    const start = performance.now();
+    const result =
+        await postAndListenMessage({action: 'compute', buffer: inputBuffer});
+    computeTime = (performance.now() - start).toFixed(2);
+    computeCount++;
+    outputBuffer = result.outputBuffer;
+    console.log(`  done in ${computeTime} ms.`);
+    showPerfResult();
+    await drawOutput(outputBuffer, inputCanvas);
+    $('#fps').text(`${(1000/computeTime).toFixed(0)} FPS`);
+  }
   rafReq = requestAnimationFrame(renderCamStream);
 }
 
@@ -209,6 +224,7 @@ export async function main() {
     ui.handleClick(disabledSelectors, true);
     if (isFirstTimeLoad) $('#hint').hide();
     const numRuns = utils.getUrlParams()[0];
+    fps = utils.getUrlParams()[3];
     // Only do load() when model first time loads and
     // there's new model or delegate choosed
     if (isFirstTimeLoad || modelChanged) {
@@ -266,6 +282,7 @@ export async function main() {
     } else if (inputType === 'camera') {
       stream = await utils.getMediaStream();
       camElement.srcObject = stream;
+      then = Date.now();
       camElement.onloadedmediadata = await renderCamStream();
       await ui.showProgressComponent('done', 'done', 'done');
       $('#fps').show();

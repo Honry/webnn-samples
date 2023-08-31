@@ -273,7 +273,18 @@ export function getUrlParams() {
     }
   }
 
-  return [numRuns, powerPreference, numThreads];
+  // Get 'fps' param to restict the animation frame 
+  let fps = params.get('fps');
+  if (fps != null) {
+    fps = parseInt(fps);
+    if (!Number.isInteger(fps) || fps < 0) {
+      addAlert(`Ignore the url param: 'fps', its value must be ` +
+          `an integer and not less than 0.`);
+          fps = null;
+    }
+  }
+
+  return [numRuns, powerPreference, numThreads, fps];
 }
 
 // Set backend for using WebNN-polyfill or WebNN
