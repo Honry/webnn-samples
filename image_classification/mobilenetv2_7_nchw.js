@@ -40,11 +40,11 @@ export class MobileNetV27Nchw {
     }
     if (clip) {
       // implement `clip` by `clamp` of  WebNN API
-      options.activation = this.builder_.clamp({minValue: 0, maxValue: 6});
+      return this.builder_.clamp(this.builder_.conv2d(input, weights, options), {minValue: 0, maxValue: 6});
     } else {
       options.activation = undefined;
+      return this.builder_.conv2d(input, weights, options);
     }
-    return this.builder_.conv2d(input, weights, options);
   }
 
   async buildGemm_(input, name) {
@@ -122,14 +122,14 @@ export class MobileNetV27Nchw {
     const conv3 = await this.buildConv_(bottleneck15, '95', true);
     const conv4 = await this.buildConv_(conv3, '97', false, {groups: 1280, strides: [7, 7]});
     const conv5 = await this.buildConv_(conv4, '104', false);
-    const reshape = this.builder_.reshape(conv5, [1, -1]);
+    const reshape = this.builder_.reshape(conv5, [1, null]);
     // return reshape;
     // const gemm = await this.buildGemm_(reshape, '104');
     return this.builder_.softmax(reshape);
   }
 
   async build(outputOperand) {
-    this.graph_ = await this.builder_.buildAsync({'output': outputOperand});
+    this.graph_ = await this.builder_.build({'output': outputOperand});
   }
 
   // Release the constant tensors of a model
@@ -143,6 +143,7 @@ export class MobileNetV27Nchw {
   async compute(inputBuffer, outputBuffer) {
     const inputs = {'input': inputBuffer};
     const outputs = {'output': outputBuffer};
-    await this.context_.compute(this.graph_, inputs, outputs);
+    const results = await this.context_.compute(this.graph_, inputs, outputs);
+    return results;
   }
 }
