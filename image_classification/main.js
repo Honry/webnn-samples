@@ -17,7 +17,7 @@ const imgElement = document.getElementById('feedElement');
 imgElement.src = './images/test.jpg';
 const camElement = document.getElementById('feedMediaElement');
 let modelName = '';
-let layout = 'nhwc';
+let layout = 'nchw';
 let instanceType = modelName + layout;
 let rafReq;
 let isFirstTimeLoad = true;
@@ -28,13 +28,31 @@ let stream = null;
 let loadTime = 0;
 let buildTime = 0;
 let computeTime = 0;
-const inputOptions = {
-  mean: [127.5, 127.5, 127.5],
-  std: [127.5, 127.5, 127.5],
-  inputLayout: 'nhwc',
-  labelUrl: './labels/labels1001.txt',
-  inputDimensions: [1, 224, 224, 3],
+let inputOptions;
+let outputDimensions;
+const nhwcOptions = {
+  inputOptions: {
+    mean: [127.5, 127.5, 127.5],
+    std: [127.5, 127.5, 127.5],
+    inputLayout: "nhwc",
+    labelUrl: "./labels/labels1001.txt",
+    inputDimensions: [1, 224, 224, 3],
+  },
+  outputDimensions: [1, 1001],
 };
+
+const nchwOptions = {
+  inputOptions: {
+    mean: [0.485, 0.456, 0.406],
+    std: [0.229, 0.224, 0.225],
+    norm: true,
+    inputLayout: "nchw",
+    labelUrl: "./labels/labels1000.txt",
+    inputDimensions: [1, 3, 224, 224],
+  },
+  outputDimensions: [1, 1000],
+};
+
 let outputBuffer;
 let deviceType = '';
 let lastdeviceType = '';
@@ -51,7 +69,7 @@ async function fetchLabels(url) {
 $(document).ready(() => {
   $('.icdisplay').hide();
   if (utils.isWebNN()) {
-    $('#webnn_cpu').click();
+    $('#webnn_gpu').click();
   } else {
     $('#polyfill_gpu').click();
   }
@@ -228,10 +246,12 @@ async function main() {
         lastBackend = lastBackend != backend ? backend : lastBackend;
       }
 
+      inputOptions = layout == 'nchw' ? nchwOptions.inputOptions : nhwcOptions.inputOptions;
+      outputDimensions = layout == 'nchw' ? nchwOptions.outputDimensions : nhwcOptions.outputDimensions;
       instanceType = modelName + layout;
       labels = await fetchLabels(inputOptions.labelUrl);
       outputBuffer =
-          new Float32Array(utils.sizeOfShape([1, 1001]));
+          new Float32Array(utils.sizeOfShape(outputDimensions));
       isFirstTimeLoad = false;
       console.log(`- Model name: ${modelName}, Model layout: ${layout} -`);
       // UI shows model loading progress
@@ -242,7 +262,7 @@ async function main() {
         contextOptions['powerPreference'] = powerPreference;
       }
   
-      loadTime = await postAndListenMessage({action: 'load', options: contextOptions});
+      loadTime = await postAndListenMessage({action: 'load', options: {contextOptions, layout}});
       console.log(`  done in ${loadTime} ms.`);
       // UI shows model building progress
       await ui.showProgressComponent('done', 'current', 'pending');

@@ -1,6 +1,7 @@
 'use strict';
 
 importScripts('./mobilenet_nhwc_sync.js');
+importScripts('./mobilenet_nchw_sync.js');
 importScripts('../common/utils_worker.js');
 
 let netInstance = null;
@@ -19,12 +20,13 @@ onmessage = async (message) => {
     switch (message.data.action) {
       case 'load':
         const loatStart = performance.now();
-        const contextOptions = message.data.options;
+        const contextOptions = message.data.options.contextOptions;
+        const layout = message.data.options.layout;
         if (!isWebNN) {
           // Set WebNN polyfill backend
           await setPolyfillBackend(contextOptions.deviceType);
         }
-        netInstance = new MobileNetV2NhwcSync();
+        netInstance = layout == 'nhwc' ? new MobileNetV2NhwcSync() : new MobileNetV2NchwSync();
         outputOperand = await netInstance.load(contextOptions);
         const loadTime = (performance.now() - loatStart).toFixed(2);
         postMessage(loadTime);
