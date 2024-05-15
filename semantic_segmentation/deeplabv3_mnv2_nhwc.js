@@ -1,6 +1,6 @@
 'use strict';
 
-import {buildConstantByNpy} from '../common/utils.js';
+import {buildConstantByNpy, computePadding2DForAutoPad, weightsOrigin} from '../common/utils.js';
 
 // DeepLab V3 MobileNet V2 model with 'nhwc' input layout
 export class DeepLabV3MNV2Nhwc {
@@ -9,7 +9,8 @@ export class DeepLabV3MNV2Nhwc {
     this.deviceType_ = null;
     this.builder_ = null;
     this.graph_ = null;
-    this.weightsUrl_ = '../test-data/models/deeplabv3_mnv2_nhwc/weights/';
+    this.weightsUrl_ = weightsOrigin() +
+      '/test-data/models/deeplabv3_mnv2_nhwc/weights/';
     this.inputOptions = {
       mean: [127.5, 127.5, 127.5],
       std: [127.5, 127.5, 127.5],
@@ -36,12 +37,15 @@ export class DeepLabV3MNV2Nhwc {
     const weights = await buildConstantByNpy(this.builder_, weightsName);
     const bias = await buildConstantByNpy(this.builder_, biasName);
     options.inputLayout = 'nhwc';
-    options.autoPad = 'same-upper';
     if (namePrefix.includes('depthwise')) {
       options.filterLayout = 'ihwo';
     } else {
       options.filterLayout = 'ohwi';
     }
+    options.padding = computePadding2DForAutoPad(
+        /* nhwc */[input.shape()[1], input.shape()[2]],
+        /* ohwi or ihwo */[weights.shape()[1], weights.shape()[2]],
+        options.strides, options.dilations, 'same-upper');
     options.bias = bias;
     if (relu6) {
       // TODO: Set clamp activation to options once it's supported in

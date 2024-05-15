@@ -1,15 +1,24 @@
 'use strict';
 
-import {buildConstantByNpy} from '../common/utils.js';
+import {buildConstantByNpy, weightsOrigin} from '../common/utils.js';
 
 // MobileNet V2 model with 'nchw' input layout
 export class MobileNetV2Nchw {
-  constructor() {
+  constructor(dataType = 'float32') {
     this.context_ = null;
     this.deviceType_ = null;
     this.builder_ = null;
     this.graph_ = null;
-    this.weightsUrl_ = '../test-data/models/mobilenetv2_nchw/weights/';
+    this.dataType_ = dataType;
+    this.weightsUrl_ = weightsOrigin();
+    if (this.dataType_ === 'float32') {
+      this.weightsUrl_ += '/test-data/models/mobilenetv2_nchw/weights/';
+    } else if (this.dataType_ === 'float16') {
+      this.weightsUrl_ +=
+          '/test-data/models/mobilenetv2_fp16_nchw_optimized/weights/';
+    } else {
+      throw new Error(`Unsupported dataType: ${this.dataType_}`);
+    }
     this.inputOptions = {
       mean: [0.485, 0.456, 0.406],
       std: [0.229, 0.224, 0.225],
@@ -22,54 +31,64 @@ export class MobileNetV2Nchw {
   }
 
   async buildConv_(input, name, relu6 = true, options = {}) {
-    const prefix = this.weightsUrl_ + 'conv_' + name;
-    const weightsName = prefix + '_weight.npy';
-    const weights =
-        await buildConstantByNpy(this.builder_, weightsName);
-    const biasName = prefix + '_bias.npy';
-    const bias =
-        await buildConstantByNpy(this.builder_, biasName);
-    options.bias = bias;
+    let weights;
+    if (this.dataType_ === 'float32') {
+      weights = buildConstantByNpy(this.builder_,
+          `${this.weightsUrl_}conv_${name}_weight.npy`);
+      options.bias = await buildConstantByNpy(this.builder_,
+          `${this.weightsUrl_}conv_${name}_bias.npy`);
+    } else {
+      weights = buildConstantByNpy(this.builder_,
+          `${this.weightsUrl_}w${name}.npy`, this.dataType_);
+      // Only node 97 has no bias input
+      if (name !== '97') {
+        options.bias = await buildConstantByNpy(this.builder_,
+            `${this.weightsUrl_}b${name}.npy`, this.dataType_);
+      }
+    }
+
     if (relu6) {
       // TODO: Set clamp activation to options once it's supported in
       // WebNN DML backend.
       // Implement `clip` by `clamp` of  WebNN API
-      if (this.deviceType_ == 'gpu') {
+      if (this.deviceType_ == 'gpu' || this.deviceType_ == 'npu') {
         return this.builder_.clamp(
-            this.builder_.conv2d(input, weights, options),
+            this.builder_.conv2d(await input, await weights, options),
             {minValue: 0, maxValue: 6});
       } else {
         options.activation = this.builder_.clamp({minValue: 0, maxValue: 6});
       }
     }
-    return this.builder_.conv2d(input, weights, options);
+    return this.builder_.conv2d(await input, await weights, options);
   }
 
   async buildGemm_(input, name) {
     const prefix = this.weightsUrl_ + 'gemm_' + name;
     const weightsName = prefix + '_weight.npy';
-    const weights = await buildConstantByNpy(this.builder_, weightsName);
+    const weights = buildConstantByNpy(this.builder_, weightsName,
+        this.dataType_);
     const biasName = prefix + '_bias.npy';
-    const bias = await buildConstantByNpy(this.builder_, biasName);
-    const options = {c: bias, bTranspose: true};
-    return this.builder_.gemm(input, weights, options);
+    const bias = buildConstantByNpy(this.builder_, biasName,
+        this.dataType_);
+    const options = {c: await bias, bTranspose: true};
+    return this.builder_.gemm(await input, await weights, options);
   }
 
   async buildLinearBottleneck_(
       input, convNameArray, group, stride, shortcut = true) {
-    const conv1x1Relu6 = await this.buildConv_(input, convNameArray[0]);
+    const conv1x1Relu6 = this.buildConv_(await input, convNameArray[0]);
     const options = {
       padding: [1, 1, 1, 1],
       groups: group,
       strides: [stride, stride],
     };
-    const dwise3x3Relu6 = await this.buildConv_(
+    const dwise3x3Relu6 = this.buildConv_(
         conv1x1Relu6, convNameArray[1], true, options);
-    const conv1x1Linear = await this.buildConv_(
+    const conv1x1Linear = this.buildConv_(
         dwise3x3Relu6, convNameArray[2], false);
 
     if (shortcut) {
-      return this.builder_.add(input, conv1x1Linear);
+      return this.builder_.add(await input, await conv1x1Linear);
     }
     return conv1x1Linear;
   }
@@ -78,54 +97,69 @@ export class MobileNetV2Nchw {
     this.context_ = await navigator.ml.createContext(contextOptions);
     this.deviceType_ = contextOptions.deviceType;
     this.builder_ = new MLGraphBuilder(this.context_);
-    const data = this.builder_.input('input', {
-      type: 'float32',
+    let data = this.builder_.input('input', {
       dataType: 'float32',
       dimensions: this.inputOptions.inputDimensions,
     });
-    const conv0 = await this.buildConv_(
+    if (this.dataType_ === 'float16') {
+      data = this.builder_.cast(data, 'float16');
+    }
+    const conv0 = this.buildConv_(
         data, '0', true, {padding: [1, 1, 1, 1], strides: [2, 2]});
-    const conv1 = await this.buildConv_(
+    const conv1 = this.buildConv_(
         conv0, '2', true, {padding: [1, 1, 1, 1], groups: 32});
-    const conv2 = await this.buildConv_(conv1, '4', false);
-    const bottleneck0 = await this.buildLinearBottleneck_(
+    const conv2 = this.buildConv_(conv1, '4', false);
+    const bottleneck0 = this.buildLinearBottleneck_(
         conv2, ['5', '7', '9'], 96, 2, false);
-    const bottleneck1 = await this.buildLinearBottleneck_(
+    const bottleneck1 = this.buildLinearBottleneck_(
         bottleneck0, ['10', '12', '14'], 144, 1);
-    const bottleneck2 = await this.buildLinearBottleneck_(
+    const bottleneck2 = this.buildLinearBottleneck_(
         bottleneck1, ['16', '18', '20'], 144, 2, false);
-    const bottleneck3 = await this.buildLinearBottleneck_(
+    const bottleneck3 = this.buildLinearBottleneck_(
         bottleneck2, ['21', '23', '25'], 192, 1);
-    const bottleneck4 = await this.buildLinearBottleneck_(
+    const bottleneck4 = this.buildLinearBottleneck_(
         bottleneck3, ['27', '29', '31'], 192, 1);
-    const bottleneck5 = await this.buildLinearBottleneck_(
+    const bottleneck5 = this.buildLinearBottleneck_(
         bottleneck4, ['33', '35', '37'], 192, 2, false);
-    const bottleneck6 = await this.buildLinearBottleneck_(
+    const bottleneck6 = this.buildLinearBottleneck_(
         bottleneck5, ['38', '40', '42'], 384, 1);
-    const bottleneck7 = await this.buildLinearBottleneck_(
+    const bottleneck7 = this.buildLinearBottleneck_(
         bottleneck6, ['44', '46', '48'], 384, 1);
-    const bottleneck8 = await this.buildLinearBottleneck_(
+    const bottleneck8 = this.buildLinearBottleneck_(
         bottleneck7, ['50', '52', '54'], 384, 1);
-    const bottleneck9 = await this.buildLinearBottleneck_(
+    const bottleneck9 = this.buildLinearBottleneck_(
         bottleneck8, ['56', '58', '60'], 384, 1, false);
-    const bottleneck10 = await this.buildLinearBottleneck_(
+    const bottleneck10 = this.buildLinearBottleneck_(
         bottleneck9, ['61', '63', '65'], 576, 1);
-    const bottleneck11 = await this.buildLinearBottleneck_(
+    const bottleneck11 = this.buildLinearBottleneck_(
         bottleneck10, ['67', '69', '71'], 576, 1);
-    const bottleneck12 = await this.buildLinearBottleneck_(
+    const bottleneck12 = this.buildLinearBottleneck_(
         bottleneck11, ['73', '75', '77'], 576, 2, false);
-    const bottleneck13 = await this.buildLinearBottleneck_(
+    const bottleneck13 = this.buildLinearBottleneck_(
         bottleneck12, ['78', '80', '82'], 960, 1);
-    const bottleneck14 = await this.buildLinearBottleneck_(
+    const bottleneck14 = this.buildLinearBottleneck_(
         bottleneck13, ['84', '86', '88'], 960, 1);
-    const bottleneck15 = await this.buildLinearBottleneck_(
+    const bottleneck15 = this.buildLinearBottleneck_(
         bottleneck14, ['90', '92', '94'], 960, 1, false);
 
-    const conv3 = await this.buildConv_(bottleneck15, '95', true);
-    const pool = this.builder_.averagePool2d(conv3);
-    const reshape = this.builder_.reshape(pool, [1, null]);
-    const gemm = await this.buildGemm_(reshape, '104');
-    return this.builder_.softmax(gemm);
+    const conv3 = this.buildConv_(bottleneck15, '95', true);
+    if (this.dataType_ == 'float32') {
+      const pool = this.builder_.averagePool2d(await conv3);
+      const reshape = this.builder_.reshape(pool, [1, 1280]);
+      const gemm = this.buildGemm_(reshape, '104');
+      return this.builder_.softmax(await gemm);
+    } else {
+      const conv4 = this.buildConv_(await conv3, '97', false,
+          {groups: 1280, strides: [7, 7]});
+      const conv5 = this.buildConv_(await conv4, '104', false);
+      const reshape = this.builder_.reshape(await conv5, [1, 1000]);
+      if (contextOptions.deviceType === 'npu') {
+        return this.builder_.cast(reshape, 'float32');
+      } else {
+        const softmax = this.builder_.softmax(reshape);
+        return this.builder_.cast(softmax, 'float32');
+      }
+    }
   }
 
   async build(outputOperand) {

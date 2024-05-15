@@ -1,6 +1,6 @@
 'use strict';
 
-import {buildConstantByNpy} from '../common/utils.js';
+import {buildConstantByNpy, weightsOrigin} from '../common/utils.js';
 
 // SimpleCNN model with 'nchw' layout.
 export class FaceLandmarkNchw {
@@ -8,7 +8,8 @@ export class FaceLandmarkNchw {
     this.context_ = null;
     this.builder_ = null;
     this.graph_ = null;
-    this.weightsUrl_ = '../test-data/models/face_landmark_nchw/weights';
+    this.weightsUrl_ = weightsOrigin() +
+      '/test-data/models/face_landmark_nchw/weights';
     this.inputOptions = {
       inputLayout: 'nchw',
       inputDimensions: [1, 3, 128, 128],
@@ -54,7 +55,7 @@ export class FaceLandmarkNchw {
     if (reshapeSize !== undefined) {
       gemm = this.builder_.gemm(this.builder_.reshape(
           this.builder_.transpose(await input, {permutation: [0, 2, 3, 1]}),
-          [null, reshapeSize]), await weights, options);
+          [1, reshapeSize]), await weights, options);
     } else {
       gemm = this.builder_.gemm(await input, await weights, options);
     }
