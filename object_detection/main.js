@@ -13,7 +13,9 @@ const imgElement = document.getElementById('feedElement');
 imgElement.src = './images/test.jpg';
 const camElement = document.getElementById('feedMediaElement');
 let modelName = '';
+let modelId = '';
 let layout = 'nhwc';
+let dataType = 'float32';
 let instanceType = modelName + layout;
 let rafReq;
 let isFirstTimeLoad = true;
@@ -30,7 +32,22 @@ let deviceType = '';
 let lastdeviceType = '';
 let backend = '';
 let lastBackend = '';
+let stopRender = true;
+let isRendering = false;
 const disabledSelectors = ['#tabs > li', '.btn'];
+const modelIds = ['ssdmobilenetv1', 'tinyyolov2'];
+const modelList = {
+  'cpu': {
+    'float32': modelIds,
+  },
+  'gpu': {
+    'float32': modelIds,
+    'float16': modelIds,
+  },
+  'npu': {
+    'float16': ['ssdmobilenetv1'],
+  },
+};
 
 async function fetchLabels(url) {
   const response = await fetch(url);
@@ -48,26 +65,66 @@ $(document).ready(async () => {
 });
 
 $('#backendBtns .btn').on('change', async (e) => {
-  if (inputType === 'camera') utils.stopCameraStream(rafReq, stream);
-  if ($(e.target).attr('id').indexOf('cpu') != -1) {
-    layout = 'nhwc';
-  } else if (($(e.target).attr('id').indexOf('gpu') != -1)) {
-    layout = 'nchw';
-  } else {
-    throw new Error('Unknown backend');
+  if (inputType === 'camera') {
+    await stopCamRender();
   }
-  await main();
+  const backendId = $(e.target).attr('id');
+  layout = utils.getDefaultLayout(backendId);
+  [backend, deviceType] = backendId.split('_');
+  // Only show the supported models for each deviceType. Now fp16 nchw models
+  // are only supported on gpu/npu.
+  if (backendId == 'webnn_gpu') {
+    ui.handleBtnUI('#float16Label', false);
+    ui.handleBtnUI('#float32Label', false);
+    utils.displayAvailableModels(modelList, modelIds, deviceType, dataType);
+  } else if (backendId == 'webnn_npu') {
+    ui.handleBtnUI('#float16Label', false);
+    ui.handleBtnUI('#float32Label', true);
+    $('#float16').click();
+    utils.displayAvailableModels(modelList, modelIds, deviceType, 'float16');
+  } else {
+    ui.handleBtnUI('#float16Label', true);
+    ui.handleBtnUI('#float32Label', false);
+    $('#float32').click();
+    utils.displayAvailableModels(modelList, modelIds, deviceType, 'float32');
+  }
+
+  // Uncheck selected model
+  if (modelId != '') {
+    $(`#${modelId}`).parent().removeClass('active');
+  }
 });
 
 $('#modelBtns .btn').on('change', async (e) => {
-  modelName = $(e.target).attr('id');
-  if (inputType === 'camera') utils.stopCameraStream(rafReq, stream);
+  if (inputType === 'camera') {
+    await stopCamRender();
+  }
+
+  modelId = $(e.target).attr('id');
+  modelName = modelId;
+  if (dataType == 'float16') {
+    modelName += 'fp16';
+  }
+
   await main();
+});
+
+$('#dataTypeBtns .btn').on('change', async (e) => {
+  dataType = $(e.target).attr('id');
+  utils.displayAvailableModels(modelList, modelIds, deviceType, dataType);
+  // Uncheck selected model
+  if (modelId != '') {
+    $(`#${modelId}`).parent().removeClass('active');
+  }
 });
 
 // Click trigger to do inference with <img> element
 $('#img').click(async () => {
-  if (inputType === 'camera') utils.stopCameraStream(rafReq, stream);
+  if (inputType === 'camera') {
+    await stopCamRender();
+  } else {
+    return;
+  }
   inputType = 'image';
   $('.shoulddisplay').hide();
   await main();
@@ -88,22 +145,38 @@ $('#feedElement').on('load', async () => {
 
 // Click trigger to do inference with <video> media element
 $('#cam').click(async () => {
+  if (inputType == 'camera') return;
   inputType = 'camera';
   $('.shoulddisplay').hide();
   await main();
 });
 
+function stopCamRender() {
+  stopRender = true;
+  utils.stopCameraStream(rafReq, stream);
+  return new Promise((resolve) => {
+    // if the rendering is not stopped, check it every 100ms
+    setInterval(() => {
+      // resolve when the rendering is stopped
+      if (!isRendering) {
+        resolve();
+      }
+    }, 100);
+  });
+}
+
 /**
  * This method is used to render live camera tab.
  */
 async function renderCamStream() {
-  if (!stream.active) return;
+  if (!stream.active || stopRender) return;
   // If the video element's readyState is 0, the video's width and height are 0.
   // So check the readState here to make sure it is greater than 0.
   if (camElement.readyState === 0) {
     rafReq = requestAnimationFrame(renderCamStream);
     return;
   }
+  isRendering = true;
   const inputBuffer = utils.getInputTensor(camElement, inputOptions);
   const inputCanvas = utils.getVideoFrame(camElement);
   console.log('- Computing... ');
@@ -115,7 +188,10 @@ async function renderCamStream() {
   showPerfResult();
   await drawOutput(inputCanvas, outputs, labels);
   $('#fps').text(`${(1000/computeTime).toFixed(0)} FPS`);
-  rafReq = requestAnimationFrame(renderCamStream);
+  isRendering = false;
+  if (!stopRender) {
+    rafReq = requestAnimationFrame(renderCamStream);
+  }
 }
 
 async function drawOutput(inputElement, outputs, labels) {
@@ -123,7 +199,7 @@ async function drawOutput(inputElement, outputs, labels) {
   $('#inferenceresult').show();
 
   // Draw output for SSD Mobilenet V1 model
-  if (modelName === 'ssdmobilenetv1') {
+  if (modelName.includes('ssdmobilenetv1')) {
     const anchors = SsdDecoder.generateAnchors({});
     SsdDecoder.decodeOutputBoxTensor({}, outputs.boxes, anchors);
     let [totalDetections, boxesList, scoresList, classesList] =
@@ -135,16 +211,7 @@ async function drawOutput(inputElement, outputs, labels) {
         boxesList, scoresList, classesList, labels);
   } else {
     // Draw output for Tiny Yolo V2 model
-    // Transpose 'nchw' output to 'nhwc' for postprocessing
-    let outputBuffer = outputs.output;
-    if (layout === 'nchw') {
-      outputBuffer = tf.tidy(() => {
-        const a =
-            tf.tensor(outputBuffer, netInstance.outputDimensions, 'float32');
-        const b = tf.transpose(a, [0, 2, 3, 1]);
-        return b.dataSync();
-      });
-    }
+    const outputBuffer = outputs.output;
     const decodeOut = Yolo2Decoder.decodeYOLOv2({numClasses: 20},
         outputBuffer, inputOptions.anchors);
     const boxes = Yolo2Decoder.getBoxes(decodeOut, inputOptions.margin);
@@ -167,8 +234,10 @@ function showPerfResult(medianComputeTime = undefined) {
 function constructNetObject(type) {
   const netObject = {
     'tinyyolov2nchw': new TinyYoloV2Nchw(),
+    'tinyyolov2fp16nchw': new TinyYoloV2Nchw('float16'),
     'tinyyolov2nhwc': new TinyYoloV2Nhwc(),
     'ssdmobilenetv1nchw': new SsdMobilenetV1Nchw(),
+    'ssdmobilenetv1fp16nchw': new SsdMobilenetV1Nchw('float16'),
     'ssdmobilenetv1nhwc': new SsdMobilenetV1Nhwc(),
   };
 
@@ -178,8 +247,6 @@ function constructNetObject(type) {
 async function main() {
   try {
     if (modelName === '') return;
-    [backend, deviceType] =
-        $('input[name="backend"]:checked').attr('id').split('_');
     ui.handleClick(disabledSelectors, true);
     if (isFirstTimeLoad) $('#hint').hide();
     let start;
@@ -204,7 +271,7 @@ async function main() {
       netInstance = constructNetObject(instanceType);
       inputOptions = netInstance.inputOptions;
       labels = await fetchLabels(inputOptions.labelUrl);
-      if (modelName === 'tinyyolov2') {
+      if (modelName.includes('tinyyolov2')) {
         outputs = {
           'output': new Float32Array(
               utils.sizeOfShape(netInstance.outputDimensions)),
@@ -273,6 +340,7 @@ async function main() {
     } else if (inputType === 'camera') {
       stream = await utils.getMediaStream();
       camElement.srcObject = stream;
+      stopRender = false;
       camElement.onloadeddata = await renderCamStream();
       await ui.showProgressComponent('done', 'done', 'done');
       $('#fps').show();

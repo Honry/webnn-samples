@@ -579,6 +579,9 @@ const webnnbadge = () => {
 const footer = () => {
     const footerlink = `
         <p>
+          The WebNN API is under active development within W3C Web Machine Learning Working Group, please <a href="https://github.com/webmachinelearning/webnn-samples/issues" title="File a bug report for WebNN Samples">file a bug report</a> if the WebNN sample doesn't work in the latest versions of Chrome or Edge.
+        </p>
+        <p>
           &copy;2024 
           <a href="https://webmachinelearning.github.io/">WebNN API</a> ·
           <a href="https://github.com/webmachinelearning/webnn-samples#webnn-installation-guides">Installation Guides</a> · 
@@ -603,6 +606,18 @@ $(document).ready(async () => {
           "title",
           "WebNN is supported, disable WebNN Polyfill."
         );
+        // Disable WebNN NPU backend if failed to find a capable NPU adapter.
+        try {
+          await navigator.ml.createContext({deviceType: 'npu'});
+        } catch (error) {
+          $('#webnn_npu').parent().addClass('disabled');
+          $('#webnn_npu').parent().addClass('btn-outline-secondary');
+          $('#webnn_npu').parent().removeClass('btn-outline-info');
+          $('#webnn_npu').parent().attr(
+            "title",
+            "Unable to find a capable NPU adapter."
+          );
+        }
       }
     }
     $("#webnnstatus").html("supported").addClass("webnn-status-true");
