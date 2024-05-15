@@ -83,9 +83,9 @@ export class NSNet2 {
       'initialState155': initialState155Buffer,
     };
     const outputs = {
-      'output': outputBuffer.slice(),
-      'gru94': gru94Buffer.slice(),
-      'gru157': gru157Buffer.slice(),
+      'output': outputBuffer,
+      'gru94': gru94Buffer,
+      'gru157': gru157Buffer,
     };
     const results = await this.context_.compute(this.graph_, inputs, outputs);
     return results.outputs;

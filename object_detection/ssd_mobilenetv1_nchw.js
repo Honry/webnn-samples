@@ -4,18 +4,17 @@ import {buildConstantByNpy, computePadding2DForAutoPad, weightsOrigin} from '../
 
 // SSD MobileNet V1 model with 'nchw' layout, trained on the COCO dataset.
 export class SsdMobilenetV1Nchw {
-  constructor(dataType = 'float32') {
+  constructor() {
     this.context_ = null;
     this.deviceType_ = null;
-    this.targetDataType_ = dataType;
     this.model_ = null;
     this.builder_ = null;
     this.graph_ = null;
     this.weightsUrl_ = weightsOrigin() +
-      '/test-data/models/ssd_mobilenetv1_nchw/weights';
+      '/test-data/models/ssd_mobilenetv1_nchw/weights/';
     // Shares the same bias files with 'nhwc' layout
     this.biasUrl_ = weightsOrigin() +
-      '/test-data/models/ssd_mobilenetv1_nhwc/weights';
+      '/test-data/models/ssd_mobilenetv1_nhwc/weights/';
     this.inputOptions = {
       inputLayout: 'nchw',
       labelUrl: './labels/coco_classes.txt',
@@ -58,11 +57,9 @@ ${nameArray[1]}_BatchNorm_batchnorm`;
     }
 
     const weightsName = this.weightsUrl_ + prefix + weightSuffix;
-    const weights = await buildConstantByNpy(
-        this.builder_, weightsName, this.targetDataType_);
+    const weights = await buildConstantByNpy(this.builder_, weightsName);
     const biasName = this.biasUrl_ + prefix + biasSuffix;
-    const bias = await buildConstantByNpy(
-        this.builder_, biasName, this.targetDataType_);
+    const bias = await buildConstantByNpy(this.builder_, biasName);
     options.padding = computePadding2DForAutoPad(
         /* nchw */[input.shape()[2], input.shape()[3]],
         /* oihw */[weights.shape()[2], weights.shape()[3]],
@@ -72,7 +69,7 @@ ${nameArray[1]}_BatchNorm_batchnorm`;
       // TODO: Set clamp activation to options once it's supported in
       // WebNN DML backend.
       // Implement `clip` by `clamp` of  WebNN API
-      if (this.deviceType_ == 'gpu' || this.deviceType_ == 'npu') {
+      if (this.deviceType_ == 'gpu') {
         return this.builder_.clamp(
             this.builder_.conv2d(input, weights, options),
             {minValue: 0, maxValue: 6});
@@ -87,13 +84,11 @@ ${nameArray[1]}_BatchNorm_batchnorm`;
     this.context_ = await navigator.ml.createContext(contextOptions);
     this.deviceType_ = contextOptions.deviceType;
     this.builder_ = new MLGraphBuilder(this.context_);
-    let input = this.builder_.input('input', {
+    const input = this.builder_.input('input', {
+      type: 'float32',
       dataType: 'float32',
       dimensions: this.inputOptions.inputDimensions,
     });
-    if (this.targetDataType_ === 'float16') {
-      input = this.builder_.cast(input, 'float16');
-    }
     const strides = [2, 2];
     const conv0 = await this.buildConv_(
         input, ['', '0', '', '165__cf__168'],
@@ -254,14 +249,7 @@ ${nameArray[1]}_BatchNorm_batchnorm`;
     const concat1 = this.builder_.concat(
         [reshape6, reshape7, reshape8, reshape9, reshape10, reshape11], 1);
 
-    let boxes = concat0;
-    let scores = concat1;
-
-    if (this.targetDataType_ === 'float16') {
-      boxes = this.builder_.cast(boxes, 'float32');
-      scores = this.builder_.cast(scores, 'float32');
-    }
-    return {boxes, scores};
+    return {'boxes': concat0, 'scores': concat1};
   }
 
   async build(outputOperand) {

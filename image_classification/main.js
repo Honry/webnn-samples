@@ -1,7 +1,5 @@
 'use strict';
 
-import {ResNet50V1FP16Nchw} from './resnet50v1_fp16_nchw.js';
-import {EfficientNetFP16Nchw} from './efficientnet_fp16_nchw.js';
 import {MobileNetV2Nchw} from './mobilenet_nchw.js';
 import {MobileNetV2Nhwc} from './mobilenet_nhwc.js';
 import {SqueezeNetNchw} from './squeezenet_nchw.js';
@@ -17,9 +15,7 @@ const imgElement = document.getElementById('feedElement');
 imgElement.src = './images/test.jpg';
 const camElement = document.getElementById('feedMediaElement');
 let modelName = '';
-let modelId = '';
 let layout = 'nhwc';
-let dataType = 'float32';
 let instanceType = modelName + layout;
 let rafReq;
 let isFirstTimeLoad = true;
@@ -36,44 +32,7 @@ let deviceType = '';
 let lastdeviceType = '';
 let backend = '';
 let lastBackend = '';
-let stopRender = true;
-let isRendering = false;
 const disabledSelectors = ['#tabs > li', '.btn'];
-const modelIds = [
-  'mobilenet',
-  'squeezenet',
-  'resnet50v2',
-  'resnet50v1',
-  'efficientnet',
-];
-const modelList = {
-  'cpu': {
-    'float32': [
-      'mobilenet',
-      'squeezenet',
-      'resnet50v2',
-    ],
-  },
-  'gpu': {
-    'float32': [
-      'mobilenet',
-      'squeezenet',
-      'resnet50v2',
-    ],
-    'float16': [
-      'efficientnet',
-      'mobilenet',
-      'resnet50v1',
-    ],
-  },
-  'npu': {
-    'float16': [
-      'efficientnet',
-      'mobilenet',
-      'resnet50v1',
-    ],
-  },
-};
 
 async function fetchLabels(url) {
   const response = await fetch(url);
@@ -91,74 +50,32 @@ $(document).ready(async () => {
 });
 
 $('#backendBtns .btn').on('change', async (e) => {
-  if (inputType === 'camera') {
-    await stopCamRender();
-  }
-  const backendId = $(e.target).attr('id');
-  layout = utils.getDefaultLayout(backendId);
-  [backend, deviceType] = backendId.split('_');
-  // Only show the supported models for each deviceType. Now fp16 nchw models
-  // are only supported on gpu/npu.
-  if (backendId == 'webnn_gpu') {
-    ui.handleBtnUI('#float16Label', false);
-    ui.handleBtnUI('#float32Label', false);
-    utils.displayAvailableModels(modelList, modelIds, deviceType, dataType);
-  } else if (backendId == 'webnn_npu') {
-    ui.handleBtnUI('#float16Label', false);
-    ui.handleBtnUI('#float32Label', true);
-    $('#float16').click();
-    utils.displayAvailableModels(modelList, modelIds, deviceType, 'float16');
+  if (inputType === 'camera') utils.stopCameraStream(rafReq, stream);
+  if ($(e.target).attr('id').indexOf('cpu') != -1) {
+    layout = 'nhwc';
+  } else if (($(e.target).attr('id').indexOf('gpu') != -1)) {
+    layout = 'nchw';
   } else {
-    ui.handleBtnUI('#float16Label', true);
-    ui.handleBtnUI('#float32Label', false);
-    $('#float32').click();
-    utils.displayAvailableModels(modelList, modelIds, deviceType, 'float32');
+    throw new Error('Unknown backend');
   }
-
-  // Uncheck selected model
-  if (modelId != '') {
-    $(`#${modelId}`).parent().removeClass('active');
-  }
+  await main();
 });
 
 $('#modelBtns .btn').on('change', async (e) => {
-  if (inputType === 'camera') {
-    await stopCamRender();
-  }
-  modelId = $(e.target).attr('id');
-  modelName = modelId;
-  if (dataType == 'float16') {
-    modelName += 'fp16';
-  }
-
+  modelName = $(e.target).attr('id');
+  if (inputType === 'camera') utils.stopCameraStream(rafReq, stream);
   await main();
 });
 
 // $('#layoutBtns .btn').on('change', async (e) => {
-//   if (inputType === 'camera') {
-//     await stopCamRender();
-//   }
 //   layout = $(e.target).attr('id');
+//   if (inputType === 'camera') utils.stopCameraStream(rafReq, stream);
 //   await main();
 // });
 
-$('#dataTypeBtns .btn').on('change', async (e) => {
-  dataType = $(e.target).attr('id');
-  utils.displayAvailableModels(modelList, modelIds, deviceType, dataType);
-  // Uncheck selected model
-  if (modelId != '') {
-    $(`#${modelId}`).parent().removeClass('active');
-  }
-});
-
-
 // Click trigger to do inference with <img> element
 $('#img').click(async () => {
-  if (inputType === 'camera') {
-    await stopCamRender();
-  } else {
-    return;
-  }
+  if (inputType === 'camera') utils.stopCameraStream(rafReq, stream);
   inputType = 'image';
   $('.shoulddisplay').hide();
   await main();
@@ -179,38 +96,22 @@ $('#feedElement').on('load', async () => {
 
 // Click trigger to do inference with <video> media element
 $('#cam').click(async () => {
-  if (inputType == 'camera') return;
   inputType = 'camera';
   $('.shoulddisplay').hide();
   await main();
 });
 
-function stopCamRender() {
-  stopRender = true;
-  utils.stopCameraStream(rafReq, stream);
-  return new Promise((resolve) => {
-    // if the rendering is not stopped, check it every 100ms
-    setInterval(() => {
-      // resolve when the rendering is stopped
-      if (!isRendering) {
-        resolve();
-      }
-    }, 100);
-  });
-}
-
 /**
  * This method is used to render live camera tab.
  */
 async function renderCamStream() {
-  if (!stream.active || stopRender) return;
+  if (!stream.active) return;
   // If the video element's readyState is 0, the video's width and height are 0.
   // So check the readState here to make sure it is greater than 0.
   if (camElement.readyState === 0) {
     rafReq = requestAnimationFrame(renderCamStream);
     return;
   }
-  isRendering = true;
   const inputBuffer = utils.getInputTensor(camElement, inputOptions);
   const inputCanvas = utils.getVideoFrame(camElement);
   console.log('- Computing... ');
@@ -223,26 +124,11 @@ async function renderCamStream() {
   showPerfResult();
   await drawOutput(outputBuffer, labels);
   $('#fps').text(`${(1000/computeTime).toFixed(0)} FPS`);
-  isRendering = false;
-  if (!stopRender) {
-    rafReq = requestAnimationFrame(renderCamStream);
-  }
+  rafReq = requestAnimationFrame(renderCamStream);
 }
 
 // Get top 3 classes of labels from output buffer
 function getTopClasses(buffer, labels) {
-  // Currently we need to fallback softmax to tf.softmax because
-  // NPU dosen't support softmax.
-  // TODO: Remove this workaround once NPU supports softmax.
-  if (deviceType === 'npu') {
-    // Softmax
-    buffer = tf.tidy(() => {
-      const a =
-        tf.tensor(buffer, netInstance.outputDimensions, 'float32');
-      const b = tf.softmax(a);
-      return b.dataSync();
-    });
-  }
   const probs = Array.from(buffer);
   const indexes = probs.map((prob, index) => [prob, index]);
   const sorted = indexes.sort((a, b) => {
@@ -305,15 +191,12 @@ function showPerfResult(medianComputeTime = undefined) {
 
 function constructNetObject(type) {
   const netObject = {
-    'mobilenetfp16nchw': new MobileNetV2Nchw('float16'),
-    'resnet50v1fp16nchw': new ResNet50V1FP16Nchw(),
-    'efficientnetfp16nchw': new EfficientNetFP16Nchw(),
     'mobilenetnchw': new MobileNetV2Nchw(),
     'mobilenetnhwc': new MobileNetV2Nhwc(),
     'squeezenetnchw': new SqueezeNetNchw(),
     'squeezenetnhwc': new SqueezeNetNhwc(),
-    'resnet50v2nchw': new ResNet50V2Nchw(),
-    'resnet50v2nhwc': new ResNet50V2Nhwc(),
+    'resnet50nchw': new ResNet50V2Nchw(),
+    'resnet50nhwc': new ResNet50V2Nhwc(),
   };
 
   return netObject[type];
@@ -322,6 +205,8 @@ function constructNetObject(type) {
 async function main() {
   try {
     if (modelName === '') return;
+    [backend, deviceType] =
+        $('input[name="backend"]:checked').attr('id').split('_');
     ui.handleClick(disabledSelectors, true);
     if (isFirstTimeLoad) $('#hint').hide();
     let start;
@@ -335,7 +220,7 @@ async function main() {
         // Set backend and device
         await utils.setBackend(backend, deviceType);
         lastdeviceType = lastdeviceType != deviceType ?
-            deviceType : lastdeviceType;
+                               deviceType : lastdeviceType;
         lastBackend = lastBackend != backend ? backend : lastBackend;
       }
       if (netInstance !== null) {
@@ -406,7 +291,6 @@ async function main() {
     } else if (inputType === 'camera') {
       stream = await utils.getMediaStream();
       camElement.srcObject = stream;
-      stopRender = false;
       camElement.onloadeddata = await renderCamStream();
       await ui.showProgressComponent('done', 'done', 'done');
       ui.readyShowResultComponents();
