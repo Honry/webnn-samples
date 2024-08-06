@@ -5,7 +5,7 @@ import {addAlert} from './ui.js';
 
 export function weightsOrigin() {
   if (location.hostname.toLowerCase().indexOf('github.io') > -1) {
-    return 'https://d3i5xkfad89fac.cloudfront.net';
+    return '..';
   } else {
     return '..';
   }
