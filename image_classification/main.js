@@ -95,7 +95,7 @@ $('#backendBtns .btn').on('change', async (e) => {
     await stopCamRender();
   }
   const backendId = $(e.target).attr('id');
-  layout = utils.getDefaultLayout(backendId);
+  // layout = utils.getDefaultLayout(backendId);
   [backend, deviceType] = backendId.split('_');
   // Only show the supported models for each deviceType. Now fp16 nchw models
   // are only supported on gpu/npu.
@@ -313,7 +313,8 @@ async function main() {
     ui.handleClick(disabledSelectors, true);
     if (isFirstTimeLoad) $('#hint').hide();
     let start;
-    const [numRuns, powerPreference, numThreads] = utils.getUrlParams();
+    const [numRuns, powerPreference, numThreads, new_layout] = utils.getUrlParams();
+    layout = new_layout;
 
     // Only do load() and build() when model first time loads,
     // there's new model choosed, backend changed or device changed

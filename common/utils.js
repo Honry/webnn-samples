@@ -342,7 +342,12 @@ export function getUrlParams() {
     }
   }
 
-  return [numRuns, powerPreference, numThreads];
+  let new_layout = 'nchw';
+  if (['nhwc', 'nchw'].includes(params.get('layout'))) {
+    new_layout = params.get('layout');
+  }
+
+  return [numRuns, powerPreference, numThreads, new_layout];
 }
 
 // Set backend for using WebNN-polyfill or WebNN
