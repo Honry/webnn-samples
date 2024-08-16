@@ -45,11 +45,32 @@ async function test(expr, expected) {
   }
 }
 
+async function testThrows(expr) {
+  try {
+    const [builderFunc] = NNotepad.makeBuilderFunction(expr);
+    await NNotepad.execBuilderFunction('cpu', builderFunc);
+    Harness.error(`failed: ${expr} - expected to throw`);
+  } catch (ex) {
+    Harness.ok(`ok: ${expr}`);
+  }
+}
+
 // ============================================================
 // Test Cases
 // ============================================================
 
 document.addEventListener('DOMContentLoaded', async (e) => {
+  Harness.section('Numbers');
+  await test('125', {dataType: 'float32', shape: [], buffer: [125]});
+  await test('-125', {dataType: 'float32', shape: [], buffer: [-125]});
+  await test('1.25', {dataType: 'float32', shape: [], buffer: [1.25]});
+  await test('1.25e2', {dataType: 'float32', shape: [], buffer: [125]});
+  await test('125e-2', {dataType: 'float32', shape: [], buffer: [1.25]});
+  await test('Infinity', {dataType: 'float32', shape: [], buffer: [Infinity]});
+  await test(
+      '-Infinity', {dataType: 'float32', shape: [], buffer: [-Infinity]});
+  await test('NaN', {dataType: 'float32', shape: [], buffer: [NaN]});
+
   Harness.section('Operators');
   await test('1 + 2', {dataType: 'float32', shape: [], buffer: [3]});
   await test('2 * 3', {dataType: 'float32', shape: [], buffer: [6]});
@@ -136,7 +157,7 @@ document.addEventListener('DOMContentLoaded', async (e) => {
     {dataType: 'float32', shape: [2], buffer: [3, 4]},
   ]);
 
-  Harness.section('Multiple input tensors');
+  Harness.section('Non-operand arguments: array of operands');
   await test(
       `A = [1,2]  B = [3,4]  concat([A,B], 0)`,
       {dataType: 'float32', shape: [4], buffer: [1, 2, 3, 4]});
@@ -144,10 +165,33 @@ document.addEventListener('DOMContentLoaded', async (e) => {
       `concat([identity([1,2]),identity([3,4])], 0)`,
       {dataType: 'float32', shape: [4], buffer: [1, 2, 3, 4]});
 
+  Harness.section('Non-operand arguments: array of numbers');
+  await test(
+      `T = [[1,2,3],[4,5,6]]  reshape(T, [1, 3, 2, 1])`,
+      {dataType: 'float32', shape: [1, 3, 2, 1], buffer: [1, 2, 3, 4, 5, 6]});
+  await test(
+      `expand([1], [2, 2])`,
+      {dataType: 'float32', shape: [2, 2], buffer: [1, 1, 1, 1]});
+
+  Harness.section('Non-operand arguments: simple numbers');
+  await test(
+      `softmax([1], 0)`,
+      {dataType: 'float32', shape: [1], buffer: [1]});
+
   Harness.section('Regression tests');
   await test(
       `concat([[1,2],[3,4]], 0)`,
       {dataType: 'float32', shape: [4], buffer: [1, 2, 3, 4]});
+  await test(
+      `trueblue = 123  (trueblue) + 1`,
+      {dataType: 'float32', shape: [], buffer: [124]});
+  await test(
+      `InfinityGauntlet = 123  (InfinityGauntlet) + 1`,
+      {dataType: 'float32', shape: [], buffer: [124]});
+  await test(
+      `NaNBread = 123  (NaNBread) + 1`,
+      {dataType: 'float32', shape: [], buffer: [124]});
+  await testThrows(`123u88`);
   // await test(`input = [[[1,2],[3,4]],[[5,6],[7,8]]]  weight =
   // [[[1,2],[1,2],[1,2],[1,2]]]  rweight = [[[1],[1],[1],[1]]]  lstm(input,
   // weight, rweight, 2, 1)`, {});

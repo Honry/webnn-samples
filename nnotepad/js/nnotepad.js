@@ -31,6 +31,10 @@ export class ComputeError extends Error {
 // General WebNN Utilities
 // ============================================================
 
+const kArgTypeOperandList = 1;
+const kArgTypeNonOperand = 2;
+const kArgTypeOperand = 3;
+
 class WebNNUtil {
   static bufferForOperand(operand) {
     const size = [...operand.shape()].reduce((a, b) => a * b, 1);
@@ -60,21 +64,22 @@ class WebNNUtil {
     throw new Error(`Unsupported dataType ${type}`);
   }
 
-  static isNonOperandArg(name, index) {
+  static argumentType(name, index) {
     return ({
-      concat: [0, 1],
-      expand: [1],
-      gru: [3, 4],
-      gruCell: [4],
-      lstm: [3, 4],
-      lstmCell: [5],
-      pad: [1, 2],
-      reshape: [1],
-      slice: [1, 2],
-      softmax: [1], // TODO: Distinguish overloads
-      split: [1],
+      concat: {0: kArgTypeOperandList, 1: kArgTypeNonOperand},
+      expand: {1: kArgTypeNonOperand},
+      gru: {3: kArgTypeNonOperand, 4: kArgTypeNonOperand},
+      gruCell: {4: kArgTypeNonOperand},
+      lstm: {3: kArgTypeNonOperand, 4: kArgTypeNonOperand},
+      lstmCell: {5: kArgTypeNonOperand},
+      pad: {1: kArgTypeNonOperand, 2: kArgTypeNonOperand},
+      reshape: {1: kArgTypeNonOperand},
+      slice: {1: kArgTypeNonOperand, 2: kArgTypeNonOperand},
+      softmax: {1: kArgTypeNonOperand},
+      split: {1: kArgTypeNonOperand},
     })[name]
-        ?.includes(index);
+        ?.[index] ||
+        kArgTypeOperand;
   }
 }
 
@@ -113,9 +118,7 @@ export class NNotepad {
 
     const kUnaryOperators = {
       '-': 'neg',
-      '!':
-          'logicalNot', // See
-      // https://github.com/webmachinelearning/webnn/issues/496#issuecomment-2123895106
+      '!': 'logicalNot',
     };
 
     const kDefaultDataType = 'float32';
@@ -138,11 +141,12 @@ export class NNotepad {
     // Tokens
     const kCommentPattern = '(#|//).*';
     const kNumberPattern =
-        'NaN|Infinity|-Infinity|-?\\d+(\\.\\d+)?([eE]-?\\d+)?';
+        'NaN\\b|Infinity\\b|-Infinity\\b|-?\\d+(\\.\\d+)?([eE]-?\\d+)?';
     const kStringPattern =
         `"([^\\\\\\x0A\\x0D"]|\\\\.)*"|'([^\\\\\\x0A\\x0D']|\\\\.)*'`;
-    const kBooleanPattern = 'true|false';
-    const kSuffixPattern = `u8|u32|u64|i8|i32|i64|f16|f32`;
+    const kBooleanPattern = 'true\\b|false\\b';
+    const kSuffixPattern =
+        `u8\\b|u32\\b|u64\\b|i8\\b|i32\\b|i64\\b|f16\\b|f32\\b`;
     const kIdentifierPattern = '[A-Za-z]\\w*';
 
     const rescape = (s) => s.replace(/[\\^$*+?.()|[\]{}]/g, '\\$&');
@@ -380,7 +384,7 @@ export class NNotepad {
       }
       throw new Error(`unexpected line type: ${line.type}`);
     }
-    function serializeExpr(expr, nonOperand = false) {
+    function serializeExpr(expr, argumentType = kArgTypeOperand) {
       if (expr.op) {
         if (expr.lhs) {
           return `_.${kBinaryOperators[expr.op]}(${serializeExpr(expr.lhs)}, ${
@@ -395,11 +399,21 @@ export class NNotepad {
         case 'boolean':
           return String(expr.value);
         case 'number':
-          return nonOperand ? Util.stringify(expr.value) :
-                              serializeScalar(expr.value, expr.dataType);
+          switch (argumentType) {
+            case kArgTypeNonOperand:
+              return Util.stringify(expr.value);
+            default:
+              return serializeScalar(expr.value, expr.dataType);
+          }
         case 'array':
-          return nonOperand ? serializeArray(expr.value) :
-                              serializeTensor(expr.value, expr.dataType);
+          switch (argumentType) {
+            case kArgTypeNonOperand:
+              return serializeArray(expr.value, kArgTypeNonOperand);
+            case kArgTypeOperandList:
+              return serializeArray(expr.value, kArgTypeOperand);
+            default:
+              return serializeTensor(expr.value, expr.dataType);
+          }
         case 'dict':
           return serializeDict(expr.dict);
         case 'identifier':
@@ -415,7 +429,7 @@ export class NNotepad {
               .map((k) => {
                 const v = dict[k];
                 k = Util.stringify(k);
-                return `${k}: ${serializeExpr(v, true)}`;
+                return `${k}: ${serializeExpr(v, kArgTypeNonOperand)}`;
               })
               .join(', ') +
           '}';
@@ -466,8 +480,10 @@ export class NNotepad {
         elements.map((n) => Util.stringifyNumber(n, dataType)).join(',')}]))`;
     }
 
-    function serializeArray(array) {
-      return '[' + array.map((expr) => serializeExpr(expr)).join(', ') + ']';
+    function serializeArray(array, argumentType) {
+      return '[' +
+          array.map((expr) => serializeExpr(expr, argumentType)).join(', ') +
+          ']';
     }
 
     function serializeCall(name, args) {
@@ -507,8 +523,8 @@ export class NNotepad {
 
       return `_.${name}(${
         args.map(
-            (arg, index) => serializeExpr(
-                arg, WebNNUtil.isNonOperandArg(name, index)))
+            (arg, index) =>
+              serializeExpr(arg, WebNNUtil.argumentType(name, index)))
             .join(', ')})`;
     }
   }
@@ -582,5 +598,207 @@ export class NNotepad {
           shape: op.shape(),
           buffer: maybeProxyForFloat16Array(result.outputs[`output-${index}`]),
         }));
+  }
+
+  // ============================================================
+  // Monarch Tokens Provider
+  // ============================================================
+
+  // The language ID configured when calling `addMonacoLanguage()`, which
+  // should be passed to `monaco.editor.create()`.
+  static get monacoLanguageId() {
+    return 'nnotepad';
+  }
+
+  // Register and configure the NNotepad language with Monaco.
+
+  static addMonacoLanguage(monaco) {
+    monaco.languages.register({id: NNotepad.monacoLanguageId});
+
+    monaco.languages.setLanguageConfiguration(
+        NNotepad.monacoLanguageId, NNotepad.monacoLanguageConfiguration);
+
+    monaco.languages.setMonarchTokensProvider(
+        NNotepad.monacoLanguageId, NNotepad.monarchTokensProvider);
+
+    if ('MLGraphBuilder' in self) {
+      // Introspect MLGraphBuilder methods to populate autocompletion.
+      const proto = self.MLGraphBuilder.prototype;
+      const methods =
+          Object.getOwnPropertyNames(proto)
+              .map((name) => Object.getOwnPropertyDescriptor(proto, name))
+              .filter(
+                  (desc) => desc.enumerable && typeof desc.value === 'function')
+              .map((desc) => desc.value.name);
+
+      monaco.languages.registerCompletionItemProvider(
+          NNotepad.monacoLanguageId, {
+            provideCompletionItems: (model, position) => {
+              const suggestions = methods.map(
+                  (name) => ({
+                    label: name,
+                    kind: monaco.languages.CompletionItemKind.Keyword,
+                    insertText: name,
+                  }));
+              return {suggestions};
+            },
+          });
+    }
+  }
+
+  // Return a Monaco language configuration.
+  // https://code.visualstudio.com/api/language-extensions/language-configuration-guide
+
+  static get monacoLanguageConfiguration() {
+    return {
+      // For comment toggling.
+      comments: {
+        lineComment: '#',
+      },
+
+      // For matching/highlighting.
+      brackets: [['{', '}'], ['[', ']'], ['(', ')']],
+
+      // To auto-close as you type the open character.
+      autoClosingPairs: [
+        {'open': '{', 'close': '}'},
+        {'open': '[', 'close': ']'},
+        {'open': '(', 'close': ')'},
+        {'open': '\'', 'close': '\'', 'notIn': ['string', 'comment']},
+        {'open': '"', 'close': '"', 'notIn': ['string']},
+      ],
+    };
+  }
+
+  // Return a Monarch syntax declaration, for use with the Monaco editor.
+  // https://microsoft.github.io/monaco-editor/monarch.html
+
+  static get monarchTokensProvider() {
+    return {
+      defaultToken: 'invalid',
+
+      brackets: [
+        ['{', '}', 'delimiter.curly'],
+        ['[', ']', 'delimiter.square'],
+        ['(', ')', 'delimiter.parenthesis'],
+      ],
+
+      // Common token patterns
+      ws: /[ \t\r\n]*/,
+      string: /"(?:[^\\\n\r"]|\\.)*"|'(?:[^\\\n\r']|\\.)*'/,
+      number: /NaN\b|Infinity\b|-Infinity\b|-?\d+(\.\d+)?([eE]-?\d+)?/,
+      boolean: /true\b|false\b/,
+      suffix: /u8\b|u32\b|u64\b|i8\b|i32\b|i64\b|f16\b|f32\b/,
+      identifier: /[A-Za-z]\w*/,
+
+      tokenizer: {
+        root: [
+          {include: '@whitespace'},
+          {include: '@comment'},
+
+          // Assignment
+          ['(@identifier)(@ws)(=)', ['variable.name', 'white', 'operator']],
+
+          {include: '@expr'},
+        ],
+
+        // Expression
+        expr: [
+          {include: '@whitespace'},
+          {include: '@comment'},
+
+          // Number
+          ['@number', 'number.float', '@suffix'],
+
+          // Array
+          [/\[/, '@brackets', '@array'],
+
+          // String
+          ['@string', 'string'],
+
+          // Boolean
+          ['@boolean', 'keyword'],
+
+          // Dictionary
+          [/{/, '@brackets', '@dict'],
+
+          // Function invocation
+          [
+            '(@identifier)(@ws)(\\()',
+            [
+              'identifier',
+              'white',
+              {token: '@brackets', next: '@func'},
+            ],
+          ],
+
+          // Identifier
+          ['@identifier', 'identifier'],
+
+          // Delimited subexpression
+          [/\(/, '@brackets', '@subexpr'],
+
+          // operators
+          [/==|<=|<|>=|>|\+|-|\*|\/|\^|!/, 'operator'],
+        ],
+
+        // Function call
+        func: [
+          {include: '@expr'},
+          [/,/, 'delimiter'],
+          [/\)/, '@brackets', '@pop'],
+        ],
+
+        // Dictionary
+        dict: [
+          {include: '@whitespace'},
+          {include: '@comment'},
+          ['@string', 'string', '@propdef'],
+          ['@identifier', 'identifier', '@propdef'],
+          [/,/, 'delimiter'],
+          [/}/, '@brackets', '@pop'],
+        ],
+
+        propdef: [
+          {include: '@whitespace'},
+          {include: '@comment'},
+          [':', {token: 'delimiter', switchTo: '@propvalue'}],
+        ],
+
+        propvalue: [
+          {include: '@expr'},
+          [/,/, 'delimiter', '@pop'],
+          [/(?=})/, '', '@pop'],
+        ],
+
+        // Array
+        array: [
+          {include: '@expr'},
+          [/,/, 'delimiter'],
+          [']', {token: '@brackets', switchTo: '@suffix'}],
+        ],
+
+        // Delimited subexpression
+        subexpr: [
+          {include: '@expr'},
+          [/\)/, '@brackets', '@pop'],
+        ],
+
+        whitespace: [
+          [/[ \t\r\n]+/, 'white'],
+        ],
+
+        comment: [
+          [/(#|\/\/).*$/, 'comment'],
+        ],
+
+        suffix: [
+          [
+            '(@ws)((?:@suffix)?)',
+            ['white', {token: 'annotation', next: '@pop'}],
+          ],
+        ],
+      },
+    };
   }
 }

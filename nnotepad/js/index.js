@@ -1,33 +1,50 @@
+/* global monaco */
+
 import {Util} from './util.js';
 import {NNotepad, ParseError} from './nnotepad.js';
-
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 document.addEventListener('DOMContentLoaded', async (e) => {
+  let inputValue = '';
   try {
     const req = await fetch('res/default.txt');
     if (req.ok) {
-      $('#input').value = await req.text();
+      inputValue = await req.text();
     }
   } catch (ex) {
     console.warn(ex);
   }
 
+  NNotepad.addMonacoLanguage(monaco);
+  const editor = monaco.editor.create($('#input'), {
+    value: inputValue,
+    language: NNotepad.monacoLanguageId,
+    lineNumbers: 'on',
+    automaticLayout: true,
+    theme: 'vs',
+    disableMonospaceOptimizations: true,
+  });
+
+  const debouncedRefresh = Util.debounce(refresh, 500);
+  editor.onDidChangeModelContent(debouncedRefresh);
+
   async function refresh(e) {
-    const code = $('#input').value;
+    const code = editor.getValue();
     $('#output').innerText = '';
     $('#output').style.color = '';
     $('#srcText').innerText = '';
 
-    if (!code.trim()) {
+    if (code && !code.trim()) {
       return;
     }
 
     try {
       const [builderFunc, src] = NNotepad.makeBuilderFunction(code);
       $('#srcText').innerText = src;
-      const result =
-          await NNotepad.execBuilderFunction($('#device').value, builderFunc);
+      const result = await NNotepad.execBuilderFunction(
+          $('#device').value,
+          builderFunc,
+      );
       $('#output').innerText = explain(result);
     } catch (ex) {
       $('#output').style.color = 'red';
@@ -46,19 +63,25 @@ document.addEventListener('DOMContentLoaded', async (e) => {
     }
   }
 
-  $('#input').addEventListener('input', Util.debounce(refresh, 500));
   $('#device').addEventListener('change', refresh);
 
   refresh();
 
-  $$('dialog > button').forEach((e) => e.addEventListener('click', (e) => {
-    e.target.parentElement.close();
-  }));
+  $$('dialog > button').forEach((e) =>
+    e.addEventListener('click', (e) => {
+      e.target.parentElement.close();
+    }),
+  );
   $$('dialog').forEach((dialog) => {
     dialog.addEventListener('click', (e) => {
+      if (e.target !== dialog) return;
       const rect = e.target.getBoundingClientRect();
-      if (e.clientY < rect.top || e.clientY > rect.bottom ||
-          e.clientX < rect.left || e.clientX > rect.right) {
+      if (
+        e.clientY < rect.top ||
+        e.clientY > rect.bottom ||
+        e.clientX < rect.left ||
+        e.clientX > rect.right
+      ) {
         e.target.close();
       }
     });
@@ -69,30 +92,49 @@ document.addEventListener('DOMContentLoaded', async (e) => {
   $('#peek').addEventListener('click', (e) => $('#srcDialog').showModal());
   $('#help').addEventListener('click', (e) => $('#helpDialog').showModal());
 
+  $('#theme').addEventListener('click', (e) => {
+    let theme = $('#theme').value;
+    (theme === 'light') ? theme = 'dark' : theme = 'light';
+    $('#theme').value = theme;
+    let newTheme = 'vs-dark';
+    (theme === 'light') ? newTheme = 'vs' : newTheme = 'vs-dark';
+    monaco.editor.setTheme(newTheme);
+    (theme === 'light') ?
+      document.body.setAttribute('class', 'light') :
+      document.body.setAttribute('class', 'dark');
+  });
+
   $('#resize').addEventListener('pointerdown', (e) => {
     const resize = e.target;
     resize.setPointerCapture(e.pointerId);
     const listener = (e) => {
       document.documentElement.style.setProperty(
-          '--input-height', `${e.clientY}px`);
+          '--input-height',
+          `${e.clientY - $('#nav').offsetHeight}px`,
+      );
     };
     resize.addEventListener('pointermove', listener);
-    resize.addEventListener('pointerup', () => {
-      resize.releasePointerCapture(e.pointerId);
-      resize.removeEventListener('pointermove', listener);
-    }, {once: true});
+    resize.addEventListener(
+        'pointerup',
+        () => {
+          resize.releasePointerCapture(e.pointerId);
+          resize.removeEventListener('pointermove', listener);
+        },
+        {once: true},
+    );
   });
 });
 
 function explain(outputs) {
   return outputs
-      .map(
-          (output) => ['dataType: ' + output.dataType,
-            'shape: ' + Util.stringify(output.shape),
-            'tensor: ' + dumpTensor(output.shape, output.buffer, 8),
-          ].join('\n'))
+      .map((output) =>
+        [
+          'dataType: ' + output.dataType,
+          'shape: ' + Util.stringify(output.shape),
+          'tensor: ' + dumpTensor(output.shape, output.buffer, 8),
+        ].join('\n'),
+      )
       .join('\n\n');
-
 
   function dumpTensor(shape, buffer, indent) {
     // Scalar
@@ -128,4 +170,3 @@ function explain(outputs) {
     })();
   }
 }
-
