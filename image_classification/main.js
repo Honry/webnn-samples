@@ -31,7 +31,6 @@ let loadTime = 0;
 let buildTime = 0;
 let computeTime = 0;
 let inputOptions;
-let outputBuffer;
 let deviceType = '';
 let lastdeviceType = '';
 let backend = '';
@@ -86,7 +85,8 @@ $(document).ready(async () => {
   if (await utils.isWebNN()) {
     $('#webnn_cpu').click();
   } else {
-    $('#polyfill_cpu').click();
+    console.log(utils.webNNNotSupportMessage());
+    ui.addAlert(utils.webNNNotSupportMessageHTML());
   }
 });
 
@@ -102,6 +102,7 @@ $('#backendBtns .btn').on('change', async (e) => {
   if (backendId == 'webnn_gpu') {
     ui.handleBtnUI('#float16Label', false);
     ui.handleBtnUI('#float32Label', false);
+    $('#float32').click();
     utils.displayAvailableModels(modelList, modelIds, deviceType, dataType);
   } else if (backendId == 'webnn_npu') {
     ui.handleBtnUI('#float16Label', false);
@@ -215,9 +216,8 @@ async function renderCamStream() {
   const inputCanvas = utils.getVideoFrame(camElement);
   console.log('- Computing... ');
   const start = performance.now();
-  const results = await netInstance.compute(inputBuffer, outputBuffer);
+  const outputBuffer = await netInstance.compute(inputBuffer);
   computeTime = (performance.now() - start).toFixed(2);
-  outputBuffer = results.outputs.output;
   console.log(`  done in ${computeTime} ms.`);
   drawInput(inputCanvas, 'camInCanvas');
   showPerfResult();
@@ -321,21 +321,14 @@ async function main() {
         lastdeviceType != deviceType || lastBackend != backend) {
       if (lastdeviceType != deviceType || lastBackend != backend) {
         // Set backend and device
-        await utils.setBackend(backend, deviceType);
         lastdeviceType = lastdeviceType != deviceType ?
             deviceType : lastdeviceType;
         lastBackend = lastBackend != backend ? backend : lastBackend;
-      }
-      if (netInstance !== null) {
-        // Call dispose() to and avoid memory leak
-        netInstance.dispose();
       }
       instanceType = modelName + layout;
       netInstance = constructNetObject(instanceType);
       inputOptions = netInstance.inputOptions;
       labels = await fetchLabels(inputOptions.labelUrl);
-      outputBuffer =
-          new Float32Array(utils.sizeOfShape(netInstance.outputShape));
       isFirstTimeLoad = false;
       console.log(`- Model name: ${modelName}, Model layout: ${layout} -`);
       // UI shows model loading progress
@@ -369,12 +362,11 @@ async function main() {
       let medianComputeTime;
 
       // Do warm up
-      let results = await netInstance.compute(inputBuffer, outputBuffer);
+      let outputBuffer = await netInstance.compute(inputBuffer);
 
       for (let i = 0; i < numRuns; i++) {
         start = performance.now();
-        results = await netInstance.compute(
-            results.inputs.input, results.outputs.output);
+        outputBuffer = await netInstance.compute(inputBuffer);
         computeTime = (performance.now() - start).toFixed(2);
         console.log(`  compute time ${i+1}: ${computeTime} ms`);
         computeTimeArray.push(Number(computeTime));
@@ -384,7 +376,6 @@ async function main() {
         medianComputeTime = medianComputeTime.toFixed(2);
         console.log(`  median compute time: ${medianComputeTime} ms`);
       }
-      outputBuffer = results.outputs.output;
       console.log('outputBuffer: ', outputBuffer);
       await ui.showProgressComponent('done', 'done', 'done');
       ui.readyShowResultComponents();

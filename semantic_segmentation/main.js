@@ -23,7 +23,6 @@ let loadTime = 0;
 let buildTime = 0;
 let computeTime = 0;
 let inputOptions;
-let outputBuffer;
 let renderer;
 let hoverPos = null;
 let deviceType = '';
@@ -39,7 +38,8 @@ $(document).ready(async () => {
   if (await utils.isWebNN()) {
     $('#webnn_cpu').click();
   } else {
-    $('#polyfill_cpu').click();
+    console.log(utils.webNNNotSupportMessage());
+    ui.addAlert(utils.webNNNotSupportMessageHTML());
   }
 });
 
@@ -255,12 +255,11 @@ async function renderCamStream() {
   const inputCanvas = utils.getVideoFrame(camElement);
   console.log('- Computing... ');
   const start = performance.now();
-  const results = await netInstance.compute(inputBuffer, outputBuffer);
+  const outputBuffer = await netInstance.compute(inputBuffer);
   computeTime = (performance.now() - start).toFixed(2);
   console.log(`  done in ${computeTime} ms.`);
-  outputBuffer = results.outputs.output;
   showPerfResult();
-  await drawOutput(inputCanvas);
+  await drawOutput(inputCanvas, outputBuffer);
   $('#fps').text(`${(1000/computeTime).toFixed(0)} FPS`);
   if ($('.icdisplay').is(':hidden')) {
     // Ready to show result components
@@ -272,7 +271,7 @@ async function renderCamStream() {
   }
 }
 
-async function drawOutput(srcElement) {
+async function drawOutput(srcElement, outputBuffer) {
   // TODO: move 'argMax' operation to graph once it is supported in WebNN spec.
   // https://github.com/webmachinelearning/webnn/issues/184
   const [argMaxBuffer, outputShape] = tf.tidy(() => {
@@ -340,21 +339,14 @@ export async function main() {
         lastdeviceType != deviceType || lastBackend != backend) {
       if (lastdeviceType != deviceType || lastBackend != backend) {
         // Set backend and device
-        await utils.setBackend(backend, deviceType);
         lastdeviceType = lastdeviceType != deviceType ?
                               deviceType : lastdeviceType;
         lastBackend = lastBackend != backend ? backend : lastBackend;
-      }
-      if (netInstance !== null) {
-        // Call dispose() to and avoid memory leak
-        netInstance.dispose();
       }
       instanceType = modelName + layout;
       netInstance = constructNetObject(instanceType);
       inputOptions = netInstance.inputOptions;
       labels = await fetchLabels(inputOptions.labelUrl);
-      outputBuffer =
-          new Float32Array(utils.sizeOfShape(netInstance.outputShape));
       isFirstTimeLoad = false;
       console.log(`- Model name: ${modelName}, Model layout: ${layout} -`);
       // UI shows model loading progress
@@ -388,12 +380,11 @@ export async function main() {
       let medianComputeTime;
 
       // Do warm up
-      let results = await netInstance.compute(inputBuffer, outputBuffer);
+      const outputBuffer = await netInstance.compute(inputBuffer);
 
       for (let i = 0; i < numRuns; i++) {
         start = performance.now();
-        results = await netInstance.compute(
-            results.inputs.input, results.outputs.output);
+        await netInstance.compute(inputBuffer);
         computeTime = (performance.now() - start).toFixed(2);
         console.log(`  compute time ${i+1}: ${computeTime} ms`);
         computeTimeArray.push(Number(computeTime));
@@ -403,12 +394,11 @@ export async function main() {
         medianComputeTime = medianComputeTime.toFixed(2);
         console.log(`  median compute time: ${medianComputeTime} ms`);
       }
-      outputBuffer = results.outputs.output;
       console.log('output: ', outputBuffer);
       await ui.showProgressComponent('done', 'done', 'done');
       $('#fps').hide();
       ui.readyShowResultComponents();
-      await drawOutput(imgElement);
+      await drawOutput(imgElement, outputBuffer);
       showPerfResult(medianComputeTime);
     } else if (inputType === 'camera') {
       stream = await utils.getMediaStream();

@@ -32,8 +32,6 @@ let stream = null;
 let loadTime = 0;
 let buildTime = 0;
 let computeTime = 0;
-let fdOutputs;
-let frOutputs;
 let deviceType = '';
 let lastdeviceType = '';
 let backend = '';
@@ -47,7 +45,8 @@ $(document).ready(async () => {
   if (await utils.isWebNN()) {
     $('#webnn_cpu').click();
   } else {
-    $('#polyfill_cpu').click();
+    console.log(utils.webNNNotSupportMessage());
+    ui.addAlert(utils.webNNNotSupportMessageHTML());
   }
 });
 
@@ -180,15 +179,14 @@ async function getEmbeddings(inputElem) {
   const fdInputBuffer = utils.getInputTensor(inputElem, fdInputOptions);
   let totalComputeTime = 0;
   let start = performance.now();
-  const results = await fdInstance.compute(fdInputBuffer, fdOutputs);
+  const results = await fdInstance.compute(fdInputBuffer);
   totalComputeTime = performance.now() - start;
-  fdOutputs = results.outputs;
   const strokedRects = [];
   const embeddings = [];
   const height = inputElem.naturalHeight || inputElem.height;
   const width = inputElem.naturalWidth || inputElem.width;
   const fdOutputArrary = [];
-  for (const output of Object.entries(fdOutputs)) {
+  for (const output of Object.entries(results)) {
     fdOutputArrary.push(output[1]);
   }
   const fdSsdOutputs = SsdDecoder.processSsdOutputTensor(
@@ -222,10 +220,9 @@ async function getEmbeddings(inputElem) {
     frInputOptions.drawOptions = drawOptions;
     const frInputBuffer = utils.getInputTensor(inputElem, frInputOptions);
     start = performance.now();
-    const results = await frInstance.compute(frInputBuffer, frOutputs);
+    const results = await frInstance.compute(frInputBuffer);
     totalComputeTime += performance.now() - start;
-    frOutputs = results.outputs;
-    const [...normEmbedding] = Float32Array.from(frOutputs.output);
+    const [...normEmbedding] = Float32Array.from(results);
     embeddings.push(normEmbedding);
   }
   return {computeTime: totalComputeTime, strokedRects, embeddings};
@@ -311,18 +308,9 @@ async function main() {
         lastdeviceType != deviceType || lastBackend != backend) {
       if (lastdeviceType != deviceType || lastBackend != backend) {
         // Set backend and device
-        await utils.setBackend(backend, deviceType);
         lastdeviceType = lastdeviceType != deviceType ?
                                deviceType : lastdeviceType;
         lastBackend = lastBackend != backend ? backend : lastBackend;
-      }
-      if (frInstance !== null) {
-        // Call dispose() to and avoid memory leak
-        frInstance.dispose();
-      }
-      if (fdInstance !== null) {
-        // Call dispose() to and avoid memory leak
-        fdInstance.dispose();
       }
       fdInstanceType = fdModelName + layout;
       frInstanceType = frModelName + layout;
@@ -330,12 +318,6 @@ async function main() {
       frInstance = constructNetObject(frInstanceType);
       fdInputOptions = fdInstance.inputOptions;
       frInputOptions = frInstance.inputOptions;
-      fdOutputs = {};
-      for (const outputInfo of Object.entries(fdInstance.outputsInfo)) {
-        fdOutputs[outputInfo[0]] =
-            new Float32Array(utils.sizeOfShape(outputInfo[1]));
-      }
-      frOutputs = {'output': new Float32Array(utils.sizeOfShape([1, 512]))};
       isFirstTimeLoad = false;
       console.log(`- Model name: ${fdModelName}, Model layout: ${layout} -`);
       // UI shows model loading progress
@@ -374,12 +356,10 @@ async function main() {
       let medianComputeTime;
       console.log('- Computing... ');
       // Do warm up
-      const fdResults = await fdInstance.compute(new Float32Array(
-          utils.sizeOfShape(fdInputOptions.inputShape)), fdOutputs);
-      const frResults = await frInstance.compute(new Float32Array(
-          utils.sizeOfShape(frInputOptions.inputShape)), frOutputs);
-      fdOutputs = fdResults.outputs;
-      frOutputs = frResults.outputs;
+      await fdInstance.compute(new Float32Array(
+          utils.sizeOfShape(fdInputOptions.inputShape)));
+      await frInstance.compute(new Float32Array(
+          utils.sizeOfShape(frInputOptions.inputShape)));
       for (let i = 0; i < numRuns; i++) {
         if (numRuns > 1) {
           // clear all predicted embeddings for benckmarking

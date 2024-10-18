@@ -6,7 +6,6 @@ import {addAlert} from '../common/ui.js';
 const batchSize = 1;
 const frames = 100; // Frames is fixed at 100
 const frameSize = 480;
-const gainsSize = 22;
 const weightsUrl = utils.weightsOrigin() +
   '/test-data/models/rnnoise/weights/';
 const rnnoise = new RNNoise(weightsUrl, batchSize, frames);
@@ -33,6 +32,13 @@ const fileInput = document.getElementById('file-input');
 const originalAudio = document.getElementById('original-audio');
 const denoisedAudio = document.getElementById('denoised-audio');
 const recorderWorker = new Worker('./utils/recorderWorker.js');
+
+$(document).ready(async () => {
+  if (!await utils.isWebNN()) {
+    console.log(utils.webNNNotSupportMessage());
+    addAlert(utils.webNNNotSupportMessageHTML());
+  }
+});
 
 recorderWorker.postMessage({
   command: 'init',
@@ -102,20 +108,6 @@ async function denoise() {
     'noiseGruInitialH': noiseInitialHiddenStateBuffer,
     'denoiseGruInitialH': denoiseInitialHiddenStateBuffer,
   };
-  const outputBuffer = new Float32Array(batchSize * frames * gainsSize);
-  const vadGruYHBuffer = new Float32Array(
-      rnnoise.vadGruNumDirections * batchSize * rnnoise.vadGruHiddenSize);
-  const noiseGruYHBuffer = new Float32Array(
-      rnnoise.noiseGruNumDirections * batchSize * rnnoise.noiseGruHiddenSize);
-  const denoiseGruYHBuffer = new Float32Array(
-      rnnoise.denoiseGruNumDirections * batchSize *
-      rnnoise.denoiseGruHiddenSize);
-  let outputs = {
-    'denoiseOutput': outputBuffer,
-    'vadGruYH': vadGruYHBuffer,
-    'noiseGruYH': noiseGruYHBuffer,
-    'denoiseGruYH': denoiseGruYHBuffer,
-  };
 
   if (audioContext.state != 'running') {
     audioContext.resume().then(function() {
@@ -144,11 +136,11 @@ async function denoise() {
     const preProcessingTime = (performance.now() - start).toFixed(2);
     inputs.input = new Float32Array(features);
     start = performance.now();
-    outputs = await rnnoise.compute(inputs, outputs);
+    const outputs = await rnnoise.compute(inputs);
     const executionTime = (performance.now() - start).toFixed(2);
-    inputs.vadGruInitialH = outputs.vadGruYH.slice();
-    inputs.noiseGruInitialH = outputs.noiseGruYH.slice();
-    inputs.denoiseGruInitialH = outputs.denoiseGruYH.slice();
+    inputs.vadGruInitialH = outputs.vadGruYH;
+    inputs.noiseGruInitialH = outputs.noiseGruYH;
+    inputs.denoiseGruInitialH = outputs.denoiseGruYH;
 
     start = performance.now();
     const output = analyser.postProcessing(outputs.denoiseOutput);
@@ -215,7 +207,7 @@ export async function main() {
   try {
     const [backend, deviceType] =
         $('input[name="backend"]:checked').attr('id').split('_');
-    await utils.setBackend(backend, deviceType);
+    console.log(`${backend} ${deviceType}`);
     modelInfo.innerHTML = '';
     await log(modelInfo, `Creating RNNoise with input shape ` +
       `[${batchSize} (batch_size) x 100 (frames) x 42].`, true);

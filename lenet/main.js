@@ -1,5 +1,4 @@
 'use strict';
-
 import * as utils from '../common/utils.js';
 import {LeNet} from './lenet.js';
 import {Pen} from './pen.js';
@@ -20,6 +19,13 @@ const digitContext = digitCanvas.getContext('2d');
 const pen = new Pen(visualCanvas);
 let lenet;
 let numRuns;
+
+$(document).ready(async () => {
+  if (!await utils.isWebNN()) {
+    console.log(utils.webNNNotSupportMessage());
+    addAlert(utils.webNNNotSupportMessageHTML());
+  }
+});
 
 function clearInferenceResult() {
   inferenceTimeElement.innerHTML = '';
@@ -69,7 +75,7 @@ async function main() {
   clearInferenceResult();
   const [backend, deviceType] =
       $('input[name="backend"]:checked').attr('id').split('_');
-  await utils.setBackend(backend, deviceType);
+  console.log(`${backend} ${deviceType}`);
   drawNextDigitFromMnist();
   const weightUrl = utils.weightsOrigin() +
     '/test-data/models/lenet_nchw/weights/lenet.bin';
@@ -116,15 +122,13 @@ predictButton.addEventListener('click', async function(e) {
     let inferenceTime;
     const inferenceTimeArray = [];
     const input = getInputFromCanvas();
-    let outputBuffer = new Float32Array(utils.sizeOfShape([1, 10]));
 
     // Do warm up
-    let results = await lenet.compute(input, outputBuffer);
+    const results = await lenet.compute(input);
 
     for (let i = 0; i < numRuns; i++) {
       start = performance.now();
-      results = await lenet.compute(
-          results.inputs.input, results.outputs.output);
+      await lenet.compute(input);
       inferenceTime = performance.now() - start;
       console.log(`execution elapsed time: ${inferenceTime.toFixed(2)} ms`);
       inferenceTimeArray.push(inferenceTime);
@@ -142,8 +146,7 @@ predictButton.addEventListener('click', async function(e) {
           `${medianInferenceTime.toFixed(2)}</span> ms`;
     }
 
-    outputBuffer = results.outputs.output;
-    const classes = topK(Array.from(outputBuffer));
+    const classes = topK(Array.from(results));
     classes.forEach((c, i) => {
       console.log(`\tlabel: ${c.label}, probability: ${c.prob}%`);
       const labelElement = document.getElementById(`label${i}`);

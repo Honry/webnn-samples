@@ -9,6 +9,8 @@ export class DeepLabV3MNV2Nhwc {
     this.deviceType_ = null;
     this.builder_ = null;
     this.graph_ = null;
+    this.inputTensor_ = null;
+    this.outputTensor_ = null;
     this.weightsUrl_ = weightsOrigin() +
       '/test-data/models/deeplabv3_mnv2_nhwc/weights/';
     this.inputOptions = {
@@ -79,11 +81,22 @@ export class DeepLabV3MNV2Nhwc {
     this.deviceType_ = contextOptions.deviceType;
     this.builder_ = new MLGraphBuilder(this.context_);
     const strides = [2, 2];
-    const input = this.builder_.input('input', {
+
+    const inputDesc = {
       dataType: 'float32',
       dimensions: this.inputOptions.inputShape,
       shape: this.inputOptions.inputShape,
+    };
+    const input = this.builder_.input('input', inputDesc);
+    inputDesc.usage = MLTensorUsage.WRITE;
+    this.inputTensor_ = await this.context_.createTensor(inputDesc);
+    this.outputTensor_ = await this.context_.createTensor({
+      dataType: 'float32',
+      dimensions: this.outputShape,
+      shape: this.outputShape,
+      usage: MLTensorUsage.READ,
     });
+
     const conv0 = await this.buildConv_(
         input, 'MobilenetV2_Conv_Conv2D', '', true, {strides});
     const conv1 = await this.buildConv_(
@@ -144,18 +157,12 @@ export class DeepLabV3MNV2Nhwc {
     this.graph_ = await this.builder_.build({'output': outputOperand});
   }
 
-  // Release the constant tensors of a model
-  dispose() {
-    // dispose() is only available in webnn-polyfill
-    if (this.graph_ !== null && 'dispose' in this.graph_) {
-      this.graph_.dispose();
-    }
-  }
-
-  async compute(inputBuffer, outputBuffer) {
-    const inputs = {'input': inputBuffer};
-    const outputs = {'output': outputBuffer};
-    const results = await this.context_.compute(this.graph_, inputs, outputs);
-    return results;
+  async compute(inputBuffer) {
+    this.context_.writeTensor(this.inputTensor_, inputBuffer);
+    const inputs = {'input': this.inputTensor_};
+    const outputs = {'output': this.outputTensor_};
+    this.context_.dispatch(this.graph_, inputs, outputs);
+    const results = await this.context_.readTensor(this.outputTensor_);
+    return new Float32Array(results);
   }
 }
