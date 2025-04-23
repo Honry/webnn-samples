@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>虚拟背景效果</title>
+  <style>
+    video,
+    canvas {
+      position: absolute;
+      top: 10;
+      left: 0;
+      transform: scaleX(-1);
+    }
+
+    canvas {
+      z-index: 1;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="status" style="font: 1em sans-serif"></div>
+  <div>
+    <video id="webcam" autoplay playsinline muted></video>
+    <canvas id="output"></canvas>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/body-segmentation"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js"
+    crossorigin="anonymous"></script>
+  <script>
+    async function run() {
+      const video = document.getElementById('webcam')
+      const canvas = document.getElementById('output')
+      const ctx = canvas.getContext('2d')
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+      })
+      video.srcObject = stream
+      await new Promise((resolve) => (video.onloadedmetadata = resolve))
+
+      const segmenter = await bodySegmentation.createSegmenter(
+        bodySegmentation.SupportedModels.MediaPipeSelfieSegmentation,
+        {
+          runtime: 'mediapipe',
+          modelType: 'general',
+          solutionPath:
+            'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation',
+        }
+      )
+
+      canvas.width = video.videoWidth
+      canvas.height = video.videoHeight
+
+      async function render() {
+        const start = performance.now();
+        const segmentation = await segmenter.segmentPeople(video);
+        const segmentTime = performance.now() - start;
+        document.getElementById('status').innerText = `Segmentation time: ${segmentTime.toFixed(2)} ms`;
+        ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+        await bodySegmentation.drawBokehEffect(
+          canvas,
+          video,
+          segmentation,
+          0.7,
+          6,
+          3,
+          true
+        )
+
+        requestAnimationFrame(render)
+      }
+
+      render()
+    }
+
+    run()
+  </script>
+</body>
+
+</html>

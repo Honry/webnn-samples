@@ -87,7 +87,7 @@ export const toHalf = (function() {
 
 // Convert npy data in original data type to `targetType`, only support
 // 'float32' to 'float16' conversion currently.
-export async function buildConstantByNpy(builder, url, targetType = 'float32') {
+export async function buildConstantByNpy(builder, url, returnConstant = true, targetType = 'float32') {
   const dataTypeMap = new Map([
     ['f2', {type: 'float16',
       array: isFloat16ArrayAvailable ? Float16Array : Uint16Array}],
@@ -122,8 +122,12 @@ export async function buildConstantByNpy(builder, url, targetType = 'float32') {
     throw new Error(`Conversion from ${npArray.dataType} ` +
         `to ${targetType} is not supported.`);
   }
-  return builder.constant(
+  if (returnConstant) {
+    return builder.constant(
       {dataType: type, dimensions: shape, shape}, typedArray);
+  } else {
+    return [{dataType: type, shape}, typedArray];
+  }
 }
 
 // Convert video frame to a canvas element
