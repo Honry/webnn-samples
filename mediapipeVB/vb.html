@@ -9,7 +9,7 @@
     video,
     canvas {
       position: absolute;
-      top: 10;
+      top: 20;
       left: 0;
       transform: scaleX(-1);
     }
@@ -34,13 +34,24 @@
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js"
     crossorigin="anonymous"></script>
   <script>
+    // Get median value from an array of Number
+    function getMedianValue(array) {
+      array = array.sort((a, b) => a - b);
+      return array.length % 2 !== 0 ? array[Math.floor(array.length / 2)] :
+        (array[array.length / 2 - 1] + array[array.length / 2]) / 2;
+    }
+
     async function run() {
+      const startRun = performance.now();
+      let count = 0;
+      const segmentTimes = [];
+      const status = document.getElementById('status');
       const video = document.getElementById('webcam')
       const canvas = document.getElementById('output')
       const ctx = canvas.getContext('2d')
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
+        video: { width: 1280, height: 720 },
       })
       video.srcObject = stream
       await new Promise((resolve) => (video.onloadedmetadata = resolve))
@@ -61,8 +72,29 @@
       async function render() {
         const start = performance.now();
         const segmentation = await segmenter.segmentPeople(video);
+
+        // Readback image data from GPU
+        for (let segment of segmentation) {
+          const mask = segment.mask;
+          const imageData = await mask.toImageData();
+        }
+
         const segmentTime = performance.now() - start;
-        document.getElementById('status').innerText = `Segmentation time: ${segmentTime.toFixed(2)} ms`;
+        const minutes = 1;
+        count ++;
+        if (((performance.now() - startRun) <= 1000 * 60 * minutes)) { // only record for 1 minute
+          console.log(`Segmentation time ${count}: ${segmentTime.toFixed(2)} ms`);
+          if (count > 3) {
+            // skip first 3 inferences, treat as warmup
+            segmentTimes.push(segmentTime);
+          }
+        } else {
+          if (status.innerText == '') {
+            const medianTime = getMedianValue(segmentTimes);
+            status.innerText = `Running ${minutes} miniutes, median time: ${medianTime.toFixed(2)} ms`;
+          }
+        }
+
         ctx.clearRect(0, 0, canvas.width, canvas.height)
 
         await bodySegmentation.drawBokehEffect(

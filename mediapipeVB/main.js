@@ -24,7 +24,10 @@ let backgroundType = 'img'; // 'none', 'blur', 'image'
 let modelType = 'webnn';
 let deviceType = '';
 let backend = 'webnn';
-
+let startRun;
+const numMinutes = 1;
+let count = 0;
+let computeTimeArray = [];
 const inputOptions = {
   mean: [127.5, 127.5, 127.5],
   std: [127.5, 127.5, 127.5],
@@ -75,7 +78,7 @@ function createGpuTensorForInput(inputBuffer) {
 }
 
 async function compute(modelType, inputBuffer) {
-  console.time("compute function");
+  // console.time("compute function");
   let outputData;
   if (modelType == 'ort') {
     const feed = {};
@@ -99,7 +102,7 @@ async function compute(modelType, inputBuffer) {
   } else {
     outputData = await wnnModel.compute(inputBuffer);
   }
-  console.timeEnd("compute function");
+  // console.timeEnd("compute function");
   return outputData
 
 }
@@ -188,10 +191,31 @@ async function renderCamStream() {
   const inputBuffer = utils.getInputTensor(camElement, inputOptions);
   console.log('- Computing... ');
 
-  const start = performance.now();
-  outputBuffer = await compute(modelType, inputBuffer);
-  computeTime = (performance.now() - start).toFixed(2);
-  console.log(`  done in ${computeTime} ms.`);
+  if (((performance.now() - startRun) <= 1000 * 60 * numMinutes)) { // only record for 1 minute
+    count++;
+    const start = performance.now();
+    outputBuffer = await compute(modelType, inputBuffer);
+    computeTime = performance.now() - start;
+    console.log(`  compute time ${count}: ${computeTime.toFixed(2)} ms`);
+    if (count > 3 && computeTime !== 0) {
+      // skip first 3 inferences, treat as warmup
+      computeTimeArray.push(computeTime);
+    }
+  } else {
+    if (computeTimeArray.length > 0) {
+      computeTime = utils.getMedianValue(computeTimeArray);
+      const result = `median compute time: ${computeTime.toFixed(2)} ms, run times: ${count}`;
+      console.log(result);
+      alert(result);
+      computeTimeArray = [];
+      count = 0;
+    }
+  }
+
+  // const start = performance.now();
+  // outputBuffer = await compute(modelType, inputBuffer);
+  // computeTime = (performance.now() - start).toFixed(2);
+  // console.log(`  done in ${computeTime} ms.`);
   showPerfResult();
   await drawOutput(outputBuffer, inputCanvas);
   $('#fps').text(`${(1000 / computeTime).toFixed(0)} FPS`);
@@ -224,10 +248,10 @@ function showPerfResult(medianComputeTime = undefined) {
   $('#loadTime').html(`${loadTime} ms`);
   if (medianComputeTime !== undefined) {
     $('#computeLabel').html('Median inference time:');
-    $('#computeTime').html(`${medianComputeTime} ms`);
+    $('#computeTime').html(`${medianComputeTime.toFixed(2)} ms`);
   } else {
     $('#computeLabel').html('Inference time:');
-    $('#computeTime').html(`${computeTime} ms`);
+    $('#computeTime').html(`${computeTime.toFixed(2)} ms`);
   }
 }
 
@@ -276,27 +300,39 @@ export async function main() {
       // UI shows model building progress
       await ui.showProgressComponent('done', 'current', 'pending');
     }
+    startRun = performance.now();
     // UI shows inferencing progress
     await ui.showProgressComponent('done', 'done', 'current');
     if (inputType === 'image') {
       const inputBuffer = utils.getInputTensor(imgElement, inputOptions);
       console.log('- Computing... ');
-      const computeTimeArray = [];
       let medianComputeTime;
 
       console.log('- Warmup... ');
-     // outputBuffer = await compute(modelType, inputBuffer);
+      outputBuffer = await compute(modelType, inputBuffer);
       console.log('- Warmup done... ');
-
-      for (let i = 0; i < numRuns; i++) {
+      while (((performance.now() - startRun) <= 1000 * 60 * numMinutes)) { // only record for 1 minute
+        count++;
         const start = performance.now();
         outputBuffer = await compute(modelType, inputBuffer);
         const time = performance.now() - start;
-        console.log(`  compute time ${i + 1}: ${time.toFixed(2)} ms`);
-        computeTimeArray.push(time);
+        console.log(`  compute time ${count}: ${time.toFixed(2)} ms`);
+        if (count > 3) {
+          // skip first 3 inferences, treat as warmup
+          computeTimeArray.push(time);
+        }
       }
+
+      // for (let i = 0; i < numRuns; i++) {
+      //   const start = performance.now();
+      //   outputBuffer = await compute(modelType, inputBuffer);
+      //   const time = performance.now() - start;
+      //   console.log(`  compute time ${i + 1}: ${time.toFixed(2)} ms`);
+      //   computeTimeArray.push(time);
+      // }
       computeTime = utils.getMedianValue(computeTimeArray);
-      computeTime = computeTime.toFixed(2);
+      computeTimeArray = [];
+      count = 0;
       if (numRuns > 1) {
         medianComputeTime = computeTime;
       }
@@ -309,6 +345,7 @@ export async function main() {
       await drawOutput(outputBuffer, imgElement);
       showPerfResult(medianComputeTime);
     } else if (inputType === 'camera') {
+      count = 0;
       stream = await utils.getMediaStream();
       camElement.srcObject = stream;
       camElement.onloadedmediadata = await renderCamStream();
