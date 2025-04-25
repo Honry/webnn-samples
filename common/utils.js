@@ -285,6 +285,7 @@ export function getUrlParams() {
     numRuns = 1;
   }
 
+  const perfTest = params.get('perfTest');
   // Get 'powerPreference' param to set WebNN's 'MLPowerPreference' option
   let powerPreference = params.get('powerPreference');
   const powerPreferences = ['default', 'high-performance', 'low-power'];
@@ -306,7 +307,7 @@ export function getUrlParams() {
     }
   }
 
-  return [numRuns, powerPreference, numThreads];
+  return [numRuns, powerPreference, numThreads, perfTest];
 }
 
 export async function isWebNN() {

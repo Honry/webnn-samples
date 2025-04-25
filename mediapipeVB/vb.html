@@ -42,6 +42,15 @@
     }
 
     async function run() {
+      const params = new URLSearchParams(location.search);
+      let modelType = params.get('modelType') || 'landscape';
+      if (['general', 'landscape'].indexOf(modelType) === -1) {
+        console.error('Invalid model type. Use "general" or "landscape".');
+        return;
+      }
+      const inputResolution = modelType == 'general'
+        ? { width: 256, height: 256 }
+        : { width: 256, height: 144 };
       const startRun = performance.now();
       let count = 0;
       const segmentTimes = [];
@@ -51,7 +60,7 @@
       const ctx = canvas.getContext('2d')
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 1280, height: 720 },
+        video: inputResolution,
       })
       video.srcObject = stream
       await new Promise((resolve) => (video.onloadedmetadata = resolve))
@@ -60,7 +69,7 @@
         bodySegmentation.SupportedModels.MediaPipeSelfieSegmentation,
         {
           runtime: 'mediapipe',
-          modelType: 'general',
+          modelType: modelType,
           solutionPath:
             'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation',
         }
@@ -81,7 +90,7 @@
 
         const segmentTime = performance.now() - start;
         const minutes = 1;
-        count ++;
+        count++;
         if (((performance.now() - startRun) <= 1000 * 60 * minutes)) { // only record for 1 minute
           console.log(`Segmentation time ${count}: ${segmentTime.toFixed(2)} ms`);
           if (count > 3) {

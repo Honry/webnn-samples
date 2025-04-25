@@ -28,11 +28,13 @@ let startRun;
 const numMinutes = 1;
 let count = 0;
 let computeTimeArray = [];
+let perfTest = false;
+let resolutionType = 'general';
 const inputOptions = {
   mean: [127.5, 127.5, 127.5],
   std: [127.5, 127.5, 127.5],
   scaledFlag: false,
-  inputResolution: [256, 256],
+  inputResolution: [256, 144],
 };
 
 const disabledSelectors = ['#tabs > li', '.btn'];
@@ -56,7 +58,7 @@ function uploadToGPU(gpuBuffer, inputBuffer) {
 }
  
 function createGpuTensorForInput(inputBuffer) {
-  if (!gpuBuffer) {
+  if (!gpuBuffer || gpuBuffer.size != Math.ceil(inputBuffer.byteLength / 16) * 16) {
     gpuBuffer = ort.env.webgpu.device.createBuffer({
       // eslint-disable-next-line no-bitwise
       usage:
@@ -68,7 +70,7 @@ function createGpuTensorForInput(inputBuffer) {
   }
   uploadToGPU(gpuBuffer, inputBuffer);
  
-  if (!gpuInputTensor) {
+  if (!gpuInputTensor || gpuInputTensor.dims[1] != inputOptions.inputShape[1]) {
     gpuInputTensor = ort.Tensor.fromGpuBuffer(gpuBuffer, {
       dataType: 'float32',
       dims: inputOptions.inputShape,
@@ -109,6 +111,7 @@ async function compute(modelType, inputBuffer) {
 
 $(document).ready(async () => {
   $('.icdisplay').hide();
+  $('#landscape').click();
   ort.env.wasm.numThreads = 4;
 });
 
@@ -118,6 +121,18 @@ $('#backend').on('change', async (e) => {
   modelType = backend.includes('ort') ? 'ort' : 'webnn';
   if (!backend.includes('webnn') && deviceType != '') {
     $(`#${deviceType}`).parent().removeClass('active');
+  }
+  if (inputType === 'camera') utils.stopCameraStream(rafReq, stream);
+  await main();
+});
+
+$('#modelType').on('change', async (e) => {
+  modelChanged = true;
+  resolutionType = $(e.target).attr('id');
+  if (resolutionType === 'general') {
+    inputOptions.inputResolution = [256, 256];
+  } else {
+    inputOptions.inputResolution = [256, 144];
   }
   if (inputType === 'camera') utils.stopCameraStream(rafReq, stream);
   await main();
@@ -189,33 +204,35 @@ async function renderCamStream() {
   }
   const inputCanvas = utils.getVideoFrame(camElement);
   const inputBuffer = utils.getInputTensor(camElement, inputOptions);
-  console.log('- Computing... ');
 
-  if (((performance.now() - startRun) <= 1000 * 60 * numMinutes)) { // only record for 1 minute
-    count++;
+  if (perfTest) {
+    if (((performance.now() - startRun) <= 1000 * 60 * numMinutes)) { // only record for 1 minute
+      count++;
+      const start = performance.now();
+      outputBuffer = await compute(modelType, inputBuffer);
+      computeTime = performance.now() - start;
+      console.log(`  compute time ${count}: ${computeTime.toFixed(2)} ms`);
+      if (count > 3 && computeTime !== 0) {
+        // skip first 3 inferences, treat as warmup
+        computeTimeArray.push(computeTime);
+      }
+    } else {
+      if (computeTimeArray.length > 0) {
+        computeTime = utils.getMedianValue(computeTimeArray);
+        const result = `median compute time: ${computeTime.toFixed(2)} ms, run times: ${count}`;
+        console.log(result);
+        alert(result);
+        computeTimeArray = [];
+        count = 0;
+      }
+    }
+  } else {
     const start = performance.now();
     outputBuffer = await compute(modelType, inputBuffer);
     computeTime = performance.now() - start;
-    console.log(`  compute time ${count}: ${computeTime.toFixed(2)} ms`);
-    if (count > 3 && computeTime !== 0) {
-      // skip first 3 inferences, treat as warmup
-      computeTimeArray.push(computeTime);
-    }
-  } else {
-    if (computeTimeArray.length > 0) {
-      computeTime = utils.getMedianValue(computeTimeArray);
-      const result = `median compute time: ${computeTime.toFixed(2)} ms, run times: ${count}`;
-      console.log(result);
-      alert(result);
-      computeTimeArray = [];
-      count = 0;
-    }
+    console.log(`  done in ${computeTime.toFixed(2)} ms.`);
   }
 
-  // const start = performance.now();
-  // outputBuffer = await compute(modelType, inputBuffer);
-  // computeTime = (performance.now() - start).toFixed(2);
-  // console.log(`  done in ${computeTime} ms.`);
   showPerfResult();
   await drawOutput(outputBuffer, inputCanvas);
   $('#fps').text(`${(1000 / computeTime).toFixed(0)} FPS`);
@@ -245,7 +262,7 @@ async function drawOutput(outputBuffer, srcElement) {
 }
 
 function showPerfResult(medianComputeTime = undefined) {
-  $('#loadTime').html(`${loadTime} ms`);
+  $('#loadTime').html(`${loadTime.toFixed(2)} ms`);
   if (medianComputeTime !== undefined) {
     $('#computeLabel').html('Median inference time:');
     $('#computeTime').html(`${medianComputeTime.toFixed(2)} ms`);
@@ -261,6 +278,8 @@ export async function main() {
     ui.handleClick(disabledSelectors, true);
     if (isFirstTimeLoad) $('#hint').hide();
     const numRuns = utils.getUrlParams()[0];
+    // Running test for 1 minute
+    perfTest = !!utils.getUrlParams()[3];
     // Only do load() when model first time loads and
     // there's new model or delegate choosed
     if (isFirstTimeLoad || modelChanged) {
@@ -269,7 +288,7 @@ export async function main() {
       // UI shows model loading progress
       await ui.showProgressComponent('current', 'pending', 'pending');
       const start = performance.now();
-      if (modelType == 'ort') {  
+      if (modelType == 'ort') {
         const provider = backend.split('-')[1];
         console.log(`- Loading ORT model, provider: [${provider}], deviceType: [${deviceType}]`);
         const options = {
@@ -285,18 +304,27 @@ export async function main() {
           logSeverityLevel: 0,
         };
         inputOptions.inputLayout = 'nhwc';
-        inputOptions.inputShape = [1, 256, 256, 3];
-        sess = await ort.InferenceSession.create('./selfie_segmenter.onnx', options);
+        if (resolutionType == 'general') {
+          inputOptions.inputShape = [1, 256, 256, 3];
+        } else {
+          inputOptions.inputShape = [1, 144, 256, 3];
+        }
+        sess = await ort.InferenceSession.create(`./selfie_segmenter_${resolutionType}_19.onnx`, options);
       } else {
         console.log(`- Loading WebNN model, deviceType: [${deviceType}]`);
+        if (resolutionType == 'landscape') {
+          const errorMsg = 'Landscape model is not supported for WebNN yet.';
+          ui.addAlert(errorMsg);
+          return;
+        }
         wnnModel = new WebnnSelfieSegmenter(deviceType);
         inputOptions.inputLayout = wnnModel.layout;
         inputOptions.inputShape = wnnModel.inputShape;
         const graph = await wnnModel.load({deviceType});
         await wnnModel.build(graph);
       }
-      loadTime = (performance.now() - start).toFixed(2);
-      console.log(`  done in ${loadTime} ms.`);
+      loadTime = performance.now() - start;
+      console.log(`  done in ${loadTime.toFixed(2)} ms.`);
       // UI shows model building progress
       await ui.showProgressComponent('done', 'current', 'pending');
     }
@@ -311,29 +339,33 @@ export async function main() {
       console.log('- Warmup... ');
       outputBuffer = await compute(modelType, inputBuffer);
       console.log('- Warmup done... ');
-      while (((performance.now() - startRun) <= 1000 * 60 * numMinutes)) { // only record for 1 minute
-        count++;
-        const start = performance.now();
-        outputBuffer = await compute(modelType, inputBuffer);
-        const time = performance.now() - start;
-        console.log(`  compute time ${count}: ${time.toFixed(2)} ms`);
-        if (count > 3) {
-          // skip first 3 inferences, treat as warmup
+
+      if (perfTest) {
+        while (((performance.now() - startRun) <= 1000 * 60 * numMinutes)) { // only record for 1 minute
+          count++;
+          const start = performance.now();
+          outputBuffer = await compute(modelType, inputBuffer);
+          const time = performance.now() - start;
+          console.log(`  compute time ${count}: ${time.toFixed(2)} ms`);
+          if (count > 3) {
+            // skip first 3 inferences, treat as warmup
+            computeTimeArray.push(time);
+          }
+        }
+      } else {
+        for (let i = 0; i < numRuns; i++) {
+          const start = performance.now();
+          outputBuffer = await compute(modelType, inputBuffer);
+          const time = performance.now() - start;
+          console.log(`  compute time ${i + 1}: ${time.toFixed(2)} ms`);
           computeTimeArray.push(time);
         }
       }
 
-      // for (let i = 0; i < numRuns; i++) {
-      //   const start = performance.now();
-      //   outputBuffer = await compute(modelType, inputBuffer);
-      //   const time = performance.now() - start;
-      //   console.log(`  compute time ${i + 1}: ${time.toFixed(2)} ms`);
-      //   computeTimeArray.push(time);
-      // }
       computeTime = utils.getMedianValue(computeTimeArray);
       computeTimeArray = [];
       count = 0;
-      if (numRuns > 1) {
+      if (numRuns > 1 || perfTest) {
         medianComputeTime = computeTime;
       }
 
