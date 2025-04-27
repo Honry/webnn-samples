@@ -3,7 +3,8 @@
 import * as utils from '../common/utils.js';
 import { buildWebGL2Pipeline } from './lib/webgl2/webgl2Pipeline.js';
 import * as ui from '../common/ui.js';
-import { WebnnSelfieSegmenter } from './webnn_selfie_segmenter.js';
+import { WebnnSelfieSegmenterGeneral } from './webnn_selfie_segmenter_general.js';
+import { WebnnSelfieSegmenterLandscape } from './webnn_selfie_segmenter_landscape.js';
 
 const imgElement = document.getElementById('feedElement');
 imgElement.src = './images/test.jpg';
@@ -39,26 +40,40 @@ const inputOptions = {
 
 const disabledSelectors = ['#tabs > li', '.btn'];
 
-
 let gpuBuffer = null;
 let gpuInputTensor = null;
 function uploadToGPU(gpuBuffer, inputBuffer) {
-  const stagingBuffer = ort.env.webgpu.device.createBuffer({usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC,
-													 size: inputBuffer.byteLength,
-													 mappedAtCreation: true});
+  const stagingBuffer = ort.env.webgpu.device.createBuffer({
+    usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC,
+    size: inputBuffer.byteLength,
+    mappedAtCreation: true,
+  });
   const arrayBuffer = stagingBuffer.getMappedRange();
   new Uint8Array(arrayBuffer).set(
-    new Uint8Array(inputBuffer.buffer, inputBuffer.byteOffset, inputBuffer.byteLength),
+    new Uint8Array(
+      inputBuffer.buffer,
+      inputBuffer.byteOffset,
+      inputBuffer.byteLength
+    )
   );
   stagingBuffer.unmap();
   const encoder = ort.env.webgpu.device.createCommandEncoder();
-  encoder.copyBufferToBuffer(stagingBuffer, 0, gpuBuffer, 0, inputBuffer.byteLength);
+  encoder.copyBufferToBuffer(
+    stagingBuffer,
+    0,
+    gpuBuffer,
+    0,
+    inputBuffer.byteLength
+  );
   ort.env.webgpu.device.queue.submit([encoder.finish()]);
   stagingBuffer.destroy();
 }
- 
+
 function createGpuTensorForInput(inputBuffer) {
-  if (!gpuBuffer || gpuBuffer.size != Math.ceil(inputBuffer.byteLength / 16) * 16) {
+  if (
+    !gpuBuffer ||
+    gpuBuffer.size != Math.ceil(inputBuffer.byteLength / 16) * 16
+  ) {
     gpuBuffer = ort.env.webgpu.device.createBuffer({
       // eslint-disable-next-line no-bitwise
       usage:
@@ -69,7 +84,7 @@ function createGpuTensorForInput(inputBuffer) {
     });
   }
   uploadToGPU(gpuBuffer, inputBuffer);
- 
+
   if (!gpuInputTensor || gpuInputTensor.dims[1] != inputOptions.inputShape[1]) {
     gpuInputTensor = ort.Tensor.fromGpuBuffer(gpuBuffer, {
       dataType: 'float32',
@@ -80,7 +95,7 @@ function createGpuTensorForInput(inputBuffer) {
 }
 
 async function compute(modelType, inputBuffer) {
-  // console.time("compute function");
+  // console.time('compute function');
   let outputData;
   if (modelType == 'ort') {
     const feed = {};
@@ -92,7 +107,7 @@ async function compute(modelType, inputBuffer) {
       feed['input'] = new ort.Tensor(
         'float32',
         inputBuffer,
-        inputOptions.inputShape,
+        inputOptions.inputShape
       );
     }
     const result = await sess.run(feed);
@@ -104,9 +119,8 @@ async function compute(modelType, inputBuffer) {
   } else {
     outputData = await wnnModel.compute(inputBuffer);
   }
-  // console.timeEnd("compute function");
-  return outputData
-
+  // console.timeEnd('compute function');
+  return outputData;
 }
 
 $(document).ready(async () => {
@@ -206,7 +220,8 @@ async function renderCamStream() {
   const inputBuffer = utils.getInputTensor(camElement, inputOptions);
 
   if (perfTest) {
-    if (((performance.now() - startRun) <= 1000 * 60 * numMinutes)) { // only record for 1 minute
+    if (performance.now() - startRun <= 1000 * 60 * numMinutes) {
+      // only record for 1 minute
       count++;
       const start = performance.now();
       outputBuffer = await compute(modelType, inputBuffer);
@@ -219,7 +234,9 @@ async function renderCamStream() {
     } else {
       if (computeTimeArray.length > 0) {
         computeTime = utils.getMedianValue(computeTimeArray);
-        const result = `median compute time: ${computeTime.toFixed(2)} ms, run times: ${count}`;
+        const result = `median compute time: ${computeTime.toFixed(
+          2
+        )} ms, run times: ${count}`;
         console.log(result);
         alert(result);
         computeTimeArray = [];
@@ -290,7 +307,9 @@ export async function main() {
       const start = performance.now();
       if (modelType == 'ort') {
         const provider = backend.split('-')[1];
-        console.log(`- Loading ORT model, provider: [${provider}], deviceType: [${deviceType}]`);
+        console.log(
+          `- Loading ORT model, provider: [${provider}], deviceType: [${deviceType}]`
+        );
         const options = {
           executionProviders: [
             {
@@ -304,23 +323,21 @@ export async function main() {
           logSeverityLevel: 0,
         };
         inputOptions.inputLayout = 'nhwc';
-        if (resolutionType == 'general') {
-          inputOptions.inputShape = [1, 256, 256, 3];
-        } else {
-          inputOptions.inputShape = [1, 144, 256, 3];
-        }
-        sess = await ort.InferenceSession.create(`./selfie_segmenter_${resolutionType}_19.onnx`, options);
+        inputOptions.inputShape =
+          resolutionType == 'general' ? [1, 256, 256, 3] : [1, 144, 256, 3];
+        sess = await ort.InferenceSession.create(
+          `./selfie_segmenter_${resolutionType}_19.onnx`,
+          options
+        );
       } else {
-        console.log(`- Loading WebNN model, deviceType: [${deviceType}]`);
-        if (resolutionType == 'landscape') {
-          const errorMsg = 'Landscape model is not supported for WebNN yet.';
-          ui.addAlert(errorMsg);
-          return;
-        }
-        wnnModel = new WebnnSelfieSegmenter(deviceType);
+        console.log(`- Loading WebNN model: [${resolutionType}] deviceType: [${deviceType}]`);
+        wnnModel =
+          resolutionType == 'landscape'
+            ? new WebnnSelfieSegmenterLandscape(deviceType)
+            : new WebnnSelfieSegmenterGeneral(deviceType);
         inputOptions.inputLayout = wnnModel.layout;
         inputOptions.inputShape = wnnModel.inputShape;
-        const graph = await wnnModel.load({deviceType});
+        const graph = await wnnModel.load({ deviceType });
         await wnnModel.build(graph);
       }
       loadTime = performance.now() - start;
@@ -341,7 +358,8 @@ export async function main() {
       console.log('- Warmup done... ');
 
       if (perfTest) {
-        while (((performance.now() - startRun) <= 1000 * 60 * numMinutes)) { // only record for 1 minute
+        while (performance.now() - startRun <= 1000 * 60 * numMinutes) {
+          // only record for 1 minute
           count++;
           const start = performance.now();
           outputBuffer = await compute(modelType, inputBuffer);
@@ -368,8 +386,6 @@ export async function main() {
       if (numRuns > 1 || perfTest) {
         medianComputeTime = computeTime;
       }
-
-      console.log('outputBuffer: ', outputBuffer);
 
       await ui.showProgressComponent('done', 'done', 'done');
       $('#fps').hide();
