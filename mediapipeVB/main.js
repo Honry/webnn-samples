@@ -22,7 +22,7 @@ let outputBuffer;
 let modelChanged = false;
 let backgroundImageSource = document.getElementById("00-img");
 let backgroundType = "img"; // 'none', 'blur', 'image'
-let modelType = "webnn";
+let modelType = "webnn"; // webnn or ort
 let deviceType = "";
 let backend = "webnn";
 let startRun;
@@ -140,7 +140,7 @@ $("#backend").on("change", async (e) => {
   await main();
 });
 
-$("#modelType").on("change", async (e) => {
+$("#resolutionType").on("change", async (e) => {
   modelChanged = true;
   resolutionType = $(e.target).attr("id");
   if (resolutionType === "general") {
@@ -330,9 +330,6 @@ export async function main() {
           options
         );
       } else {
-        console.log(
-          `- Loading WebNN model: [${resolutionType}] deviceType: [${deviceType}]`
-        );
         wnnModel =
           resolutionType == "landscape"
             ? new WebnnSelfieSegmenterLandscape(deviceType)
@@ -340,6 +337,9 @@ export async function main() {
         const graph = await wnnModel.load({ deviceType });
         inputOptions.inputLayout = wnnModel.layout;
         inputOptions.inputShape = wnnModel.inputShape;
+        console.log(
+          `- Loading WebNN model: [${resolutionType}] deviceType: [${deviceType}] preferredLayout: [${wnnModel.layout}]`
+        );
         await wnnModel.build(graph);
       }
       loadTime = performance.now() - start;
