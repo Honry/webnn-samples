@@ -1,4 +1,4 @@
-export const WEIGHTS = {
+const WEIGHTS = {
   conv0: {
     data: [
       0.61376953125, -0.076904296875, -0.1024169921875, 0.2415771484375,
@@ -26523,3 +26523,31 @@ export const WEIGHTS = {
     shape: [16, 1, 2, 2],
   },
 };
+
+const fs = require('fs');
+
+const name = 'weights_nchw';
+const weightsInfo = {};
+const writeStream = fs.createWriteStream(`${name}.bin`);
+
+let currentOffset = 0;
+
+for (const key in WEIGHTS) {
+  const weight = WEIGHTS[key];
+  const floatArray = new Float32Array(weight.data);
+  writeStream.write(Buffer.from(floatArray.buffer));
+  weightsInfo[key] = {};
+
+  weightsInfo[key]["dataOffset"] = currentOffset;
+  weightsInfo[key]["byteLength"] = floatArray.byteLength;
+  weightsInfo[key]["dataType"] = "float32";
+  weightsInfo[key]["shape"] = weight.shape;
+
+  currentOffset += floatArray.byteLength;
+}
+
+writeStream.end(() => {
+  console.log(`Weights binary file: ${name}.bin generated successfully.`);
+  fs.writeFileSync(`${name}.json`, JSON.stringify(weightsInfo, null, 2));
+  console.log(`Weights info file: ${name}.json generated successfully.`);
+});

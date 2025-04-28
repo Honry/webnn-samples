@@ -1,7 +1,5 @@
 "use strict";
 
-import { WEIGHTS_COMMON } from "./weights/general/weights_common.js";
-
 // Selfie-Segmenter WebNN model
 export class WebnnSelfieSegmenterGeneral {
   constructor(deviceType) {
@@ -21,22 +19,33 @@ export class WebnnSelfieSegmenterGeneral {
     options = {},
     isDepthwise = false
   ) {
-    const weights = this.builder_.constant(
-      { shape: this.weights_[`conv${index}`].shape, dataType: "float32" },
-      new Float32Array(this.weights_[`conv${index}`].data)
+    const weightInfo = this.weightsInfo_[`conv${index}`];
+    const weightBuffer = this.weightsBuffer_.slice(
+      weightInfo.dataOffset,
+      weightInfo.dataOffset + weightInfo.byteLength
     );
+
+    const weights = this.builder_.constant(
+      { shape: weightInfo.shape, dataType: "float32" },
+      new Float32Array(weightBuffer)
+    );
+
+    const biasInfo = this.biasesInfo_[`conv${index}`];
+    const biasBuffer = this.biasesBuffer_.slice(
+      biasInfo.dataOffset,
+      biasInfo.dataOffset + biasInfo.byteLength
+    );
+    options.bias = this.builder_.constant(
+      { shape: biasInfo.shape, dataType: "float32" },
+      new Float32Array(biasBuffer)
+    );
+
     if (this.layout === "nhwc") {
       options.filterLayout = isDepthwise ? "ihwo" : "ohwi";
       options.inputLayout = this.layout;
     }
-    const biasData = WEIGHTS_COMMON[`conv${index}_b`];
-    const bias = this.builder_.constant(
-      { dataType: "float32", shape: [biasData.length] },
-      new Float32Array(biasData)
-    );
-
-    options.bias = bias;
     const conv2d = this.builder_.conv2d(input, weights, options);
+
     if (activation === "relu") {
       return this.builder_.relu(conv2d);
     } else if (activation === "sigmoid") {
@@ -92,10 +101,22 @@ export class WebnnSelfieSegmenterGeneral {
     this.inputShape =
       this.layout === "nhwc" ? [1, 256, 256, 3] : [1, 3, 256, 256];
 
-    const weightsModule = await import(
-      `./weights/general/weights_${this.layout}.js`
+    // Load the weights, bias and info files.
+    const weightsResponse = await fetch(
+      `./weights/general/weights_${this.layout}.bin`
     );
-    this.weights_ = weightsModule.WEIGHTS;
+    this.weightsBuffer_ = await weightsResponse.arrayBuffer();
+
+    const weightInfoResponse = await fetch(
+      `./weights/general/weights_${this.layout}.json`
+    );
+    this.weightsInfo_ = await weightInfoResponse.json();
+
+    // Different layouts have the same bias
+    const biasResponse = await fetch(`./weights/general/biases.bin`);
+    this.biasesBuffer_ = await biasResponse.arrayBuffer();
+    this.biasInfoResponse_ = await fetch(`./weights/general/biases.json`);
+    this.biasesInfo_ = await this.biasInfoResponse_.json();
 
     this.builder_ = new MLGraphBuilder(this.context_);
     const strides = [2, 2];
@@ -428,9 +449,14 @@ export class WebnnSelfieSegmenterGeneral {
     const add13 = this.builder_.add(conv52, conv53);
 
     // ConvTranspose
+    const convTransposeWInfo = this.weightsInfo_["convTranspose0"];
+    const convTransposeWBuffer = this.weightsBuffer_.slice(
+      convTransposeWInfo.dataOffset,
+      convTransposeWInfo.dataOffset + convTransposeWInfo.byteLength
+    );
     const convTransposeW = this.builder_.constant(
-      { shape: this.weights_["convTranspose0"].shape, dataType: "float32" },
-      new Float32Array(this.weights_["convTranspose0"].data)
+      { shape: convTransposeWInfo.shape, dataType: "float32" },
+      new Float32Array(convTransposeWBuffer)
     );
     const convTransposeB = this.builder_.constant(
       { dataType: "float32", shape: [1] },
