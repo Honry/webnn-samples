@@ -17,7 +17,6 @@ export class WebnnSelfieSegmenterLandscape {
     index,
     activation = "",
     options = {},
-    isDepthwise = false
   ) {
     const weightInfo = this.weightsInfo_[`conv${index}`];
     const weightBuffer = this.weightsBuffer_.slice(
@@ -41,6 +40,7 @@ export class WebnnSelfieSegmenterLandscape {
     );
 
     if (this.layout === "nhwc") {
+      const isDepthwise = options.groups > 1 && options.groups == input["shape"][3];
       options.filterLayout = isDepthwise ? "ihwo" : "ohwi";
       options.inputLayout = this.layout;
     }
@@ -158,8 +158,7 @@ export class WebnnSelfieSegmenterLandscape {
         strides,
         padding: [0, 1, 0, 1],
         groups: 16,
-      },
-      true
+      }
     );
 
     // name: multiply, Conv__165, Conv__166 (contains conv3, conv4)
@@ -178,8 +177,7 @@ export class WebnnSelfieSegmenterLandscape {
         strides,
         padding: [0, 1, 0, 1],
         groups: 72,
-      },
-      true
+      }
     );
     // name: Conv__173
     const conv8 = await this.buildConv_(conv7, 8, "");
@@ -193,8 +191,7 @@ export class WebnnSelfieSegmenterLandscape {
       {
         padding: [1, 1, 1, 1],
         groups: 88,
-      },
-      true
+      }
     );
     // name: Conv__178
     const conv11 = await this.buildConv_(conv10, 11, "");
@@ -213,8 +210,7 @@ export class WebnnSelfieSegmenterLandscape {
         strides,
         padding: [1, 2, 1, 2],
         groups: 96,
-      },
-      true
+      }
     );
 
     // Conv__189, Conv__190 (contains: conv14, conv15)
@@ -233,8 +229,7 @@ export class WebnnSelfieSegmenterLandscape {
       {
         padding: [2, 2, 2, 2],
         groups: 128,
-      },
-      true
+      }
     );
 
     // Conv__200, Conv__201 (contains: conv19, conv20)
@@ -256,8 +251,7 @@ export class WebnnSelfieSegmenterLandscape {
       {
         padding: [2, 2, 2, 2],
         groups: 128,
-      },
-      true
+      }
     );
 
     // Conv__211, Conv__212 (contains: conv24, conv25)
@@ -278,8 +272,7 @@ export class WebnnSelfieSegmenterLandscape {
       {
         padding: [2, 2, 2, 2],
         groups: 96,
-      },
-      true
+      }
     );
 
     // Conv__222, Conv__223 (contains: conv29, conv30)
@@ -300,8 +293,7 @@ export class WebnnSelfieSegmenterLandscape {
       {
         padding: [2, 2, 2, 2],
         groups: 96,
-      },
-      true
+      }
     );
 
     // Conv__233, Conv__234 (contains: conv34, conv35)
@@ -356,8 +348,7 @@ export class WebnnSelfieSegmenterLandscape {
       {
         padding: [1, 1, 1, 1],
         groups: 24,
-      },
-      true
+      }
     );
 
     // name: add_7__xeno_compat__1
@@ -392,8 +383,7 @@ export class WebnnSelfieSegmenterLandscape {
       {
         padding: [1, 1, 1, 1],
         groups: 16,
-      },
-      true
+      }
     );
 
     // name: add_10__xeno_compat__1
@@ -428,8 +418,7 @@ export class WebnnSelfieSegmenterLandscape {
       {
         padding: [1, 1, 1, 1],
         groups: 16,
-      },
-      true
+      }
     );
 
     // name: add_13__xeno_compat__1

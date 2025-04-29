@@ -147,10 +147,10 @@
     "byteLength": 9600,
     "dataType": "float32",
     "shape": [
-      96,
+      1,
       5,
       5,
-      1
+      96
     ]
   },
   "conv14": {
@@ -202,10 +202,10 @@
     "byteLength": 12800,
     "dataType": "float32",
     "shape": [
-      128,
+      1,
       5,
       5,
-      1
+      128
     ]
   },
   "conv19": {
@@ -257,10 +257,10 @@
     "byteLength": 12800,
     "dataType": "float32",
     "shape": [
-      128,
+      1,
       5,
       5,
-      1
+      128
     ]
   },
   "conv24": {
@@ -312,10 +312,10 @@
     "byteLength": 9600,
     "dataType": "float32",
     "shape": [
-      96,
+      1,
       5,
       5,
-      1
+      96
     ]
   },
   "conv29": {
@@ -367,10 +367,10 @@
     "byteLength": 9600,
     "dataType": "float32",
     "shape": [
-      96,
+      1,
       5,
       5,
-      1
+      96
     ]
   },
   "conv34": {
