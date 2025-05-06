@@ -396,7 +396,7 @@ export async function main() {
       showPerfResult(medianComputeTime);
     } else if (inputType === "camera") {
       count = 0;
-      stream = await utils.getMediaStream();
+      stream = await utils.getMediaStream({width: inputOptions.inputResolution[0], height: inputOptions.inputResolution[1]});
       camElement.srcObject = stream;
       camElement.onloadedmediadata = await renderCamStream();
       await ui.showProgressComponent("done", "done", "done");
