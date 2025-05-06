@@ -20,8 +20,8 @@ let loadTime = 0;
 let computeTime = 0;
 let outputBuffer;
 let modelChanged = false;
-let backgroundImageSource = document.getElementById("00-img");
-let backgroundType = "img"; // 'none', 'blur', 'image'
+let backgroundImageSource = document.getElementById("blur-img");
+let backgroundType = "blur"; // 'none', 'blur', 'image'
 let modelType = "webnn"; // webnn or ort
 let deviceType = "";
 let backend = "webnn";
