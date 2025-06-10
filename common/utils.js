@@ -3,6 +3,9 @@
 import {numpy} from './libs/numpy.js';
 import {addAlert} from './ui.js';
 
+export const isFloat16ArrayAvailable =
+  typeof Float16Array !== 'undefined' && Float16Array.from;
+
 export function weightsOrigin() {
   if (location.hostname.toLowerCase().indexOf('github.io') > -1) {
     return 'https://d3i5xkfad89fac.cloudfront.net';
@@ -86,7 +89,8 @@ export const toHalf = (function() {
 // 'float32' to 'float16' conversion currently.
 export async function buildConstantByNpy(builder, url, targetType = 'float32') {
   const dataTypeMap = new Map([
-    ['f2', {type: 'float16', array: Uint16Array}],
+    ['f2', {type: 'float16',
+      array: isFloat16ArrayAvailable ? Float16Array : Uint16Array}],
     ['f4', {type: 'float32', array: Float32Array}],
     ['f8', {type: 'float64', array: Float64Array}],
     ['i1', {type: 'int8', array: Int8Array}],
@@ -107,15 +111,12 @@ export async function buildConstantByNpy(builder, url, targetType = 'float32') {
   const shape = npArray.shape;
   let type = dataTypeMap.get(npArray.dataType).type;
   const TypedArrayConstructor = dataTypeMap.get(npArray.dataType).array;
-  const dataView = new Uint8Array(npArray.data.buffer);
-  const dataView2 = dataView.slice();
-  let typedArray = new TypedArrayConstructor(dataView2.buffer);
+  let typedArray = new TypedArrayConstructor(npArray.data.buffer);
   if (type === 'float32' && targetType === 'float16') {
-    const uint16Array = new Uint16Array(typedArray.length);
-    for (let i = 0; i < typedArray.length; ++i) {
-      uint16Array[i] = toHalf(typedArray[i]);
-    }
-    typedArray = uint16Array;
+    // Use Float16Array if it is available, othwerwise use Uint16Array instead.
+    typedArray = isFloat16ArrayAvailable ?
+      Float16Array.from(typedArray, (v) => v) :
+      Uint16Array.from(typedArray, (v) => toHalf(v));
     type = targetType;
   } else if (type !== targetType) {
     throw new Error(`Conversion from ${npArray.dataType} ` +
@@ -137,9 +138,12 @@ export function getVideoFrame(videoElement) {
 }
 
 // Get media stream from camera
-export async function getMediaStream() {
+export async function getMediaStream(resolution = {}) {
+  const height = undefined || resolution.height;
+  const width = undefined || resolution.width;
   // Support 'user' facing mode at present
-  const constraints = {audio: false, video: {facingMode: 'user'}};
+  const constraints =
+      {audio: false, video: {facingMode: 'user', height, width}};
   const stream = await navigator.mediaDevices.getUserMedia(constraints);
   return stream;
 }
@@ -272,16 +276,21 @@ export function getMedianValue(array) {
 // Get url params
 export function getUrlParams() {
   const params = new URLSearchParams(location.search);
+  const lowerCaseParams = {};
+  params.forEach((value, key) => {
+    lowerCaseParams[key.toLowerCase()] = value;
+  });
+
   // Get 'numRuns' param to run inference multiple times
-  let numRuns = params.get('numRuns');
-  numRuns = numRuns === null ? 1 : parseInt(numRuns);
+  let numRuns = lowerCaseParams['numruns'];
+  numRuns = numRuns ? parseInt(numRuns) : 1;
   if (numRuns < 1) {
     addAlert(`Ignore the url param: 'numRuns', its value must be >= 1.`);
     numRuns = 1;
   }
 
   // Get 'powerPreference' param to set WebNN's 'MLPowerPreference' option
-  let powerPreference = params.get('powerPreference');
+  let powerPreference = lowerCaseParams['powerpreference'];
   const powerPreferences = ['default', 'high-performance', 'low-power'];
 
   if (powerPreference && !powerPreferences.includes(powerPreference)) {
@@ -291,8 +300,8 @@ export function getUrlParams() {
   }
 
   // Get 'numThreads' param to set WebNN's 'numThreads' option
-  let numThreads = params.get('numThreads');
-  if (numThreads != null) {
+  let numThreads = lowerCaseParams['numthreads'];
+  if (numThreads) {
     numThreads = parseInt(numThreads);
     if (!Number.isInteger(numThreads) || numThreads < 0) {
       addAlert(`Ignore the url param: 'numThreads', its value must be ` +
@@ -306,8 +315,11 @@ export function getUrlParams() {
 
 export async function isWebNN() {
   if (typeof MLGraphBuilder !== 'undefined') {
-    const context = await navigator.ml.createContext();
-    return !context.tf;
+    // Polyfill MLTensorUsage to make it compatible with old version of Chrome.
+    if (typeof MLTensorUsage == 'undefined') {
+      window.MLTensorUsage = {WEBGPU_INTEROP: 1, READ: 2, WRITE: 4};
+    }
+    return true;
   } else {
     return false;
   }

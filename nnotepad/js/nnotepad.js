@@ -1,6 +1,7 @@
 /* global BigInt64Array, BigUint64Array, Float16Array */
 
 import {Util} from './util.js';
+import * as idl from 'https://cdn.jsdelivr.net/npm/webidl2@24.4.1/index.js';
 
 // ============================================================
 // General Utilities
@@ -36,6 +37,29 @@ const kArgTypeNonOperand = 2;
 const kArgTypeOperand = 3;
 
 class WebNNUtil {
+  static async asyncInit() {
+    // Parse the WebIDL definition to inform argument handling.
+    WebNNUtil._idl_ast = idl.parse(await (await fetch('res/webnn.idl')).text());
+
+    // Since `MLGraphBuilder` ops are split across multiple partial interfaces,
+    // combine them for convenience.
+    WebNNUtil._idl_builder_members =
+        WebNNUtil._idl_ast
+            .filter(
+                (n) => n.type === 'interface' && n.name === 'MLGraphBuilder')
+            .map((n) => n.members)
+            .flat();
+  }
+
+  static idlOperation(name) {
+    return WebNNUtil._idl_builder_members.find(
+        (n) => n.type === 'operation' && n.name === name);
+  }
+  static idlDictionary(name) {
+    return WebNNUtil._idl_ast.find(
+        (n) => n.type === 'dictionary' && n.name === name);
+  }
+
   static bufferForOperand(operand) {
     const isShapeMethod = typeof operand.shape === 'function';
     const operandShape = isShapeMethod ? operand.shape() : operand.shape;
@@ -52,7 +76,8 @@ class WebNNUtil {
       dataType: isShapeMethod ? operand.dataType() : operand.dataType,
       dimensions: isShapeMethod ? operand.shape() : operand.shape,
       shape: isShapeMethod ? operand.shape() : operand.shape,
-      usage: MLTensorUsage.READ,
+      usage: typeof MLTensorUsage == 'undefined' ?
+          undefined : MLTensorUsage.READ,
       readable: true,
     };
     const tensor = await context.createTensor(desc);
@@ -81,26 +106,52 @@ class WebNNUtil {
     throw new Error(`Unsupported dataType ${type}`);
   }
 
-  static argumentType(name, index) {
-    return ({
-      concat: {0: kArgTypeOperandList, 1: kArgTypeNonOperand},
-      expand: {1: kArgTypeNonOperand},
-      gru: {3: kArgTypeNonOperand, 4: kArgTypeNonOperand},
-      gruCell: {4: kArgTypeNonOperand},
-      lstm: {3: kArgTypeNonOperand, 4: kArgTypeNonOperand},
-      lstmCell: {5: kArgTypeNonOperand},
-      pad: {1: kArgTypeNonOperand, 2: kArgTypeNonOperand},
-      reshape: {1: kArgTypeNonOperand},
-      slice: {1: kArgTypeNonOperand, 2: kArgTypeNonOperand},
-      softmax: {1: kArgTypeNonOperand},
-      split: {1: kArgTypeNonOperand},
-    })[name]
-        ?.[index] ||
-        kArgTypeOperand;
+  // Called to determine the type of an argument. `name` is the name of the
+  // `MLGraphBuilder` method. `index` is the argument index. If `key` is
+  // provided, this is serializing a member of an options dictionary. Returns
+  // one of the `kArgTypeXYZ` values.
+  static argumentType(name, index, key) {
+    const kDefaultDictMemberType = kArgTypeNonOperand;
+    const kDefaultArgType = kArgTypeOperand;
+
+    // AST structure is documented at https://github.com/w3c/webidl2.js
+
+    // Find the expected argument type for operation.
+    let type = WebNNUtil.idlOperation(name)?.arguments[index]?.idlType;
+    if (!type) {
+      // Fallback behavior, in case the operation or argument isn't found.
+      return key ? kDefaultDictMemberType : kDefaultArgType;
+    }
+
+    // If `key` was passed, we're serializing a dictionary. If the IDL
+    // defines the argument type as a dictionary we can get the member type.
+    if (key) {
+      const dict = WebNNUtil.idlDictionary(type.idlType);
+      const member = dict?.members.find((m) => m.name === key);
+      if (!member) {
+        // Fallback behavior, in case the dictionary and/or member isn't found.
+        return kDefaultDictMemberType;
+      }
+      type = member.idlType;
+    }
+
+    // Translate the type to the `kArgTypeXYZ` value the parser needs.
+    if (type.idlType === 'MLOperand') {
+      return kArgTypeOperand;
+    }
+    if (type.generic === 'sequence' &&
+        type.idlType[0].idlType === 'MLOperand') {
+      return kArgTypeOperandList;
+    }
+    return kArgTypeNonOperand;
   }
 }
 
 export class NNotepad {
+  static async asyncInit() {
+    await WebNNUtil.asyncInit();
+  }
+
   // ============================================================
   // Script Converter
   // ============================================================
@@ -381,26 +432,46 @@ export class NNotepad {
     // Generates WebNN code as the body of a function. `_` is passed as the
     // `MLGraphBuilder`. The output of the last expression is returned.
 
+    const kUtilArgName = '_util_';
+    const kOutputsArgName = '_outputs_';
+
     const src = lines
-        .map(
-            (line, index) =>
-              serializeLine(line, index === lines.length - 1))
+        .map((line, index) =>
+          serializeLine(line, index === lines.length - 1))
         .map((line) => line + ';\n')
         .join('');
     const AsyncFunction = async function() {}.constructor;
-    return [new AsyncFunction(['_', 'Util'], src), src];
+    return [new AsyncFunction(['_', kUtilArgName, kOutputsArgName], src), src];
 
     function serializeLine(line, last) {
       const expr = serializeExpr(line.expr);
+
+      // If the last thing is an `output()` call, don't wrap it.
+      const isOutputCall = line.type === 'expression' &&
+            line.expr.type === 'call' && line.expr.identifier === 'output';
+      const wrapAsOutput = last && !isOutputCall;
+
       switch (line.type) {
         case 'assignment':
-          return last ? `return ${expr}` : `const ${line.identifier} = ${expr}`;
+          return wrapAsOutput ? `${kOutputsArgName}.push(${expr})` :
+                                `const ${line.identifier} = ${expr}`;
         case 'expression':
-          return last ? `return ${expr}` : expr;
+          return wrapAsOutput ? `${kOutputsArgName}.push(${expr})` : expr;
       }
       throw new Error(`unexpected line type: ${line.type}`);
     }
-    function serializeExpr(expr, argumentType = kArgTypeOperand) {
+
+    // Serialize an expression. If `callContext` is provided, it can either be
+    // an object with `name` and `index` properties which identify a method call
+    // and argument position, used to determine the argument type, or an
+    // `kArgTypeXYZ` value to explicitly specify the type. This is needed for
+    // numbers, arrays, and dictionary members, which are serialized
+    // contextually.
+    function serializeExpr(expr, callContext) {
+      const argumentType = typeof callContext === 'object' ?
+          WebNNUtil.argumentType(callContext.name, callContext.index) :
+          typeof callContext === 'number' ? callContext :
+                                            kArgTypeOperand;
       if (expr.op) {
         if (expr.lhs) {
           return `_.${kBinaryOperators[expr.op]}(${serializeExpr(expr.lhs)}, ${
@@ -431,7 +502,7 @@ export class NNotepad {
               return serializeTensor(expr.value, expr.dataType);
           }
         case 'dict':
-          return serializeDict(expr.dict);
+          return serializeDict(expr.dict, callContext);
         case 'identifier':
           return expr.value;
         case 'call':
@@ -439,13 +510,17 @@ export class NNotepad {
       }
       throw new Error(`unexpected expr type: ${expr.type}`);
     }
-    function serializeDict(dict) {
+    function serializeDict(dict, callContext) {
       return '{' +
           Object.keys(dict)
               .map((k) => {
                 const v = dict[k];
-                k = Util.stringify(k);
-                return `${k}: ${serializeExpr(v, kArgTypeNonOperand)}`;
+                const argumentType = typeof callContext === 'object' ?
+                    WebNNUtil.argumentType(
+                        callContext.name, callContext.index, k) :
+                    kArgTypeNonOperand;
+                return `${Util.stringify(k)}: ${
+                  serializeExpr(v, argumentType)}`;
               })
               .join(', ') +
           '}';
@@ -455,7 +530,7 @@ export class NNotepad {
       const ctor = WebNNUtil.dataTypeToBufferType(dataType);
       // building a 0-D scalar input with empty shape
       return `_.constant({dataType:"${dataType}", dimensions: [], shape: []},
-      new ${ctor.name}([${Util.stringifyNumber(number, dataType)}]))`;
+      new ${ctor.name}([${Util.stringifyNumber(number, dataType)}]).buffer)`;
     }
     function suffixToDataType(suffix) {
       return {
@@ -495,7 +570,8 @@ export class NNotepad {
       return `_.constant({dataType: "${dataType}", dimensions: ${
         Util.stringify(shape)}, shape: ${
         Util.stringify(shape)}}, new ${ctor.name}([${
-        elements.map((n) => Util.stringifyNumber(n, dataType)).join(',')}]))`;
+        elements.map((n) => Util.stringifyNumber(n, dataType)).join(',')
+      }]).buffer)`;
     }
 
     function serializeArray(array, argumentType) {
@@ -521,7 +597,8 @@ export class NNotepad {
         return `_.constant({dataType: "${dataType.value}", dimensions: ${
           Util.stringify(dims)}, shape: ${
           Util.stringify(dims)}}, new ${
-          ctor.name}(await Util.loadBuffer(${Util.stringify(url.value)})))`;
+          ctor.name}(await ${kUtilArgName}.${Util.loadBuffer.name}(${
+          Util.stringify(url.value)})).buffer)`;
       }
 
       if (name === 'zeros') {
@@ -538,13 +615,22 @@ export class NNotepad {
         return `_.constant({dataType: "${dataType.value}", dimensions: ${
           Util.stringify(dims)}, shape: ${
           Util.stringify(dims)}}, new ${
-          ctor.name}(${len}))`;
+          ctor.name}(${len}).buffer)`;
+      }
+
+      if (name === 'output') {
+        return args.map((arg) => {
+          if (arg.type !== 'identifier') {
+            throw new TypeError('output(): expected identifier');
+          }
+          return `${kOutputsArgName}.push(${arg.value})`;
+        }).join(';\n');
       }
 
       return `_.${name}(${
         args.map(
             (arg, index) =>
-              serializeExpr(arg, WebNNUtil.argumentType(name, index)))
+              serializeExpr(arg, {name, index}))
             .join(', ')})`;
     }
   }
@@ -562,32 +648,33 @@ export class NNotepad {
     const builder = new self.MLGraphBuilder(context);
 
     const outputOperands = [];
-    let output = await builderFunc(builder, Util);
-    if (output instanceof self.MLOperand) {
-      // TODO: remove try/catch once all back-ends support `identity()`.
-      try {
-        // In case `output` is a constant.
-        output = builder.identity(output);
-      } catch (ex) {
-        // Just live with it for now.
+    const outputs = [];
+    await builderFunc(builder, Util, outputs);
+    for (const output of outputs.flat()) {
+      if (output instanceof self.MLOperand) {
+        // TODO: remove try/catch once all back-ends support `identity()`.
+        try {
+          // In case `output` is a constant.
+          outputOperands.push(builder.identity(output));
+        } catch (ex) {
+          // Just live with it for now.
+          outputOperands.push(output);
+        }
+      } else {
+        throw new ParseError(`Non-MLOperand output: ${output}`);
       }
-      outputOperands.push(output);
-    } else if (Array.isArray(output)) {
-      outputOperands.push(...output);
-      // no-op
-    } else {
-      throw new ParseError(`Non-MLOperand output: ${output}`);
     }
 
     const namedOutputs = {};
     const outputTensors = {};
     const outputBuffers = {};
-    outputOperands.forEach(async (op, index) => {
+    await Promise.all(outputOperands.map(async (op, index) => {
       const name = `output-${index}`;
       namedOutputs[name] = op;
       outputBuffers[name] = WebNNUtil.bufferForOperand(op);
       outputTensors[name] = await WebNNUtil.tensorForOperand(op, context);
-    });
+    }));
+
     let graph;
     try {
       graph = await builder.build(namedOutputs);
