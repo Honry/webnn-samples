@@ -53,7 +53,8 @@ $('#backendBtns .btn').on('change', async (e) => {
   if (inputType === 'camera') {
     await stopCamRender();
   }
-  layout = utils.getDefaultLayout($(e.target).attr('id'));
+  [backend, deviceType] = $(e.target).attr('id').split('_');
+  layout = await utils.getDefaultLayout(deviceType);
   await main();
 });
 
@@ -326,12 +327,10 @@ function constructNetObject(type) {
 export async function main() {
   try {
     if (modelName === '') return;
-    [backend, deviceType] =
-        $('input[name="backend"]:checked').attr('id').split('_');
     ui.handleClick(disabledSelectors, true);
     if (isFirstTimeLoad) $('#hint').hide();
     let start;
-    const [numRuns, powerPreference, numThreads] = utils.getUrlParams();
+    const [numRuns, powerPreference] = utils.getUrlParams();
 
     // Only do load() and build() when model first time loads,
     // there's new model choosed, backend changed or device changed
@@ -355,9 +354,6 @@ export async function main() {
       const contextOptions = {deviceType};
       if (powerPreference) {
         contextOptions['powerPreference'] = powerPreference;
-      }
-      if (numThreads) {
-        contextOptions['numThreads'] = numThreads;
       }
       start = performance.now();
       const outputOperand = await netInstance.load(contextOptions);

@@ -299,18 +299,7 @@ export function getUrlParams() {
     powerPreference = null;
   }
 
-  // Get 'numThreads' param to set WebNN's 'numThreads' option
-  let numThreads = lowerCaseParams['numthreads'];
-  if (numThreads) {
-    numThreads = parseInt(numThreads);
-    if (!Number.isInteger(numThreads) || numThreads < 0) {
-      addAlert(`Ignore the url param: 'numThreads', its value must be ` +
-          `an integer and not less than 0.`);
-      numThreads = null;
-    }
-  }
-
-  return [numRuns, powerPreference, numThreads];
+  return [numRuns, powerPreference];
 }
 
 export async function isWebNN() {
@@ -443,13 +432,10 @@ export function permuteData(array, dims, axes) {
   return [permutedData, shape];
 }
 
-export function getDefaultLayout(deviceType) {
-  if (deviceType.indexOf('cpu') != -1) {
-    return 'nhwc';
-  } else if (deviceType.indexOf('gpu') != -1 ||
-             deviceType.indexOf('npu') != -1) {
-    return 'nchw';
-  }
+export async function getDefaultLayout(deviceType) {
+  const context = await navigator.ml.createContext({deviceType});
+  const limits = context.opSupportLimits();
+  return limits.preferredInputLayout ?? 'nchw';
 }
 
 /**

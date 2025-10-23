@@ -68,16 +68,15 @@ $('#backendBtns .btn').on('change', async (e) => {
   if (inputType === 'camera') {
     await stopCamRender();
   }
-  const backendId = $(e.target).attr('id');
-  layout = utils.getDefaultLayout(backendId);
-  [backend, deviceType] = backendId.split('_');
+  [backend, deviceType] = $(e.target).attr('id').split('_');
+  layout = await utils.getDefaultLayout(deviceType);
   // Only show the supported models for each deviceType. Now fp16 nchw models
   // are only supported on gpu/npu.
-  if (backendId == 'webnn_gpu') {
+  if (deviceType == 'gpu') {
     ui.handleBtnUI('#float16Label', false);
     ui.handleBtnUI('#float32Label', false);
     utils.displayAvailableModels(modelList, modelIds, deviceType, dataType);
-  } else if (backendId == 'webnn_npu') {
+  } else if (deviceType == 'npu') {
     ui.handleBtnUI('#float16Label', false);
     ui.handleBtnUI('#float32Label', true);
     $('#float16').click();
@@ -249,7 +248,7 @@ async function main() {
     ui.handleClick(disabledSelectors, true);
     if (isFirstTimeLoad) $('#hint').hide();
     let start;
-    const [numRuns, powerPreference, numThreads] = utils.getUrlParams();
+    const [numRuns, powerPreference] = utils.getUrlParams();
 
     // Only do load() and build() when model first time loads,
     // there's new model choosed, backend changed or device changed
@@ -274,9 +273,6 @@ async function main() {
       const contextOptions = {deviceType};
       if (powerPreference) {
         contextOptions['powerPreference'] = powerPreference;
-      }
-      if (numThreads) {
-        contextOptions['numThreads'] = numThreads;
       }
       start = performance.now();
       const outputOperand = await netInstance.load(contextOptions);
